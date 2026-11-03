@@ -185,6 +185,16 @@ TCB.views.profile = (() => {
           </div>
         </form>
 
+        <!-- HU-03: PERFIL DE ESTILO E HISTORIAL DE VERSIONES -->
+        <section style="background:var(--sheet);border:var(--line);padding:28px;margin-top:32px">
+          <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:baseline">
+            <h2 class="display" style="font-size:var(--fs-xl)">Mi perfil de estilo</h2>
+            <button type="button" class="btn btn--ghost btn--sm" id="btn-repeat-quiz">${icon('refresh', 14)} Repetir quiz de estilo</button>
+          </div>
+          <p class="small muted" style="margin-top:6px">Repetir el quiz crea una nueva versión. Las anteriores se conservan con su fecha.</p>
+          <div id="style-history" style="margin-top:14px"><p class="small muted">Cargando…</p></div>
+        </section>
+
         <!-- HU-13: MI SUSCRIPCIÓN -->
         <section id="subscription-section" style="background:var(--sheet);border:var(--line);padding:28px;margin-top:32px">
           <h2 class="display" style="font-size:var(--fs-xl);margin-bottom:8px">Mi suscripción</h2>
@@ -192,6 +202,25 @@ TCB.views.profile = (() => {
         </section>
       </div>
     `;
+  }
+
+  async function renderStyleHistory(root, profile) {
+    const el = root.querySelector('#style-history');
+    if (!el) return;
+    const describe = p => `${(p.styles || []).join(' · ') || '—'} · ${(p.occasions || []).join(', ') || '—'} · corte ${p.fit || '—'} · plan ${p.plan || '—'}`;
+    try {
+      const { currentVersion, versions } = await TCB.api.profile.history();
+      el.innerHTML = `
+        <p class="small"><strong>Versión actual v${currentVersion || 1}:</strong> ${describe(profile)}</p>
+        ${versions.length ? `
+          <ul class="small muted" style="margin-top:8px;padding-left:18px">
+            ${versions.map(v => `<li>v${v.version} · hasta el ${new Date(v.archivedAt).toLocaleDateString('es-CO')} · ${describe(v.snapshot)}</li>`).join('')}
+          </ul>
+        ` : '<p class="small muted" style="margin-top:6px">Aún no tienes versiones anteriores.</p>'}
+      `;
+    } catch (e) {
+      el.innerHTML = '<p class="small error">No pudimos cargar el historial.</p>';
+    }
   }
 
   const PLAN_NAMES = { esencial: 'Esencial · 3 prendas', estilo: 'Estilo · 5 prendas' };
@@ -281,6 +310,10 @@ TCB.views.profile = (() => {
     });
 
     renderSubscription(root);
+    renderStyleHistory(root, TCB.state.get().profile || {});
+    root.querySelector('#btn-repeat-quiz')?.addEventListener('click', () => {
+      TCB.views.onboarding.startRepeat(TCB.state.get().profile);
+    });
 
     const form = root.querySelector('#profile-form');
     if (form) {
