@@ -12,6 +12,7 @@ TCB.app = (() => {
     '#/historial': TCB.views.history,
     '#/perfil': TCB.views.profile,
     '#/admin': TCB.views.admin,
+    '#/estilista': TCB.views.stylist,
     '#/restablecer': TCB.views.resetPassword,
     '#/verificar': TCB.views.verifyEmail
   };
@@ -20,6 +21,7 @@ TCB.app = (() => {
     const user = store.user;
     const currentHash = window.location.hash || '#/';
     const isAdmin = user && user.role === 'ADMIN';
+    const isStylist = user && user.role === 'STYLIST';
 
     const appbarEl = document.getElementById('app-header');
     if (!appbarEl) return;
@@ -43,11 +45,18 @@ TCB.app = (() => {
             <a class="nav-link ${currentHash.startsWith('#/admin') ? 'is-active' : ''}" href="#/admin" style="font-weight:700;color:var(--brand-box)">
               ${icon('shield', 15)} Panel de Operaciones
             </a>
+            <a class="nav-link ${currentHash.startsWith('#/estilista') ? 'is-active' : ''}" href="#/estilista">
+              Cola de curaduría
+            </a>
             <a class="nav-link ${currentHash === '#/' ? 'is-active' : ''}" href="#/">
               Ver Landing
             </a>
             <a class="nav-link ${currentHash.startsWith('#/caja') ? 'is-active' : ''}" href="#/caja">
               Vista Cliente
+            </a>
+          ` : isStylist ? `
+            <a class="nav-link ${currentHash.startsWith('#/estilista') ? 'is-active' : ''}" href="#/estilista" style="font-weight:700;color:var(--brand-box)">
+              ${icon('sparkle', 15)} Cola de curaduría
             </a>
           ` : user ? `
             <a class="nav-link ${currentHash === '#/' ? 'is-active' : ''}" href="#/">Inicio</a>
@@ -103,6 +112,8 @@ TCB.app = (() => {
       TCB.views.auth.openLoginModal(role => {
         if (role === 'ADMIN') {
           navigate('#/admin');
+        } else if (role === 'STYLIST') {
+          window.location.hash = '#/estilista';
         } else {
           navigate(window.location.hash || '#/caja');
         }
@@ -135,6 +146,8 @@ TCB.app = (() => {
           console.warn('Error loading admin data:', e);
         }
       }
+    } else if (cleanHash === '#/estilista') {
+      await TCB.views.stylist.loadQueue();
     } else if (cleanHash === '#/devoluciones' && TCB.views.returns.loadReturnsData) {
       await TCB.views.returns.loadReturnsData();
     } else if (cleanHash === '#/historial' && TCB.views.history.loadHistoryData) {
@@ -178,6 +191,8 @@ TCB.app = (() => {
     // 5. Navegación inicial
     if (user && user.role === 'ADMIN' && (!window.location.hash || window.location.hash === '#/')) {
       window.location.hash = '#/admin';
+    } else if (user && user.role === 'STYLIST' && (!window.location.hash || window.location.hash === '#/')) {
+      window.location.hash = '#/estilista';
     } else {
       navigate(window.location.hash || '#/');
     }
