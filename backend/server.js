@@ -63,6 +63,10 @@ const server = http.createServer((req, res) => {
 
   if (pathname.startsWith('/api/')) {
     handleApiRequest(req, res, pathname);
+  } else if (pathname === '/docs/ejemplo_catalogo.csv') {
+    // HU-05: plantilla de importación descargable desde el panel admin
+    res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="ejemplo_catalogo.csv"' });
+    fs.createReadStream(path.join(__dirname, '..', 'docs', 'ejemplo_catalogo.csv')).pipe(res);
   } else {
     serveStatic(req, res, pathname);
   }

@@ -9,10 +9,15 @@ const assert = require('assert');
 const TMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'tcb-test-'));
 process.env.TCB_DB_FILE = path.join(TMP_DIR, 'db.json');
 process.env.TCB_OUTBOX_FILE = path.join(TMP_DIR, 'outbox.json');
+process.env.TCB_CATALOG_FILE = path.join(TMP_DIR, 'catalog.json');
 fs.copyFileSync(path.join(__dirname, '..', 'backend', 'data', 'db.json'), process.env.TCB_DB_FILE);
+fs.copyFileSync(path.join(__dirname, '..', 'backend', 'data', 'catalog.json'), process.env.TCB_CATALOG_FILE);
 
 const { startServer } = require('../backend/server');
 const { db } = require('../backend/database');
+const { curateBox, scoreProduct } = require('../backend/engine');
+const { stockInSize } = require('../backend/catalog');
+const config = require('../backend/config');
 
 const TEST_PORT = 3199;
 
@@ -124,10 +129,21 @@ async function runTests() {
       measures: { height: 175, weight: 70, build: 'media', usual: 'M' }
     }, newToken);
 
+    // Ajuste Sprint 2 (HU-07): la caja nace PROPOSED y pasa por el estilista antes de PREPARING.
+    // La intención de la prueba se mantiene: las prendas siguen ocultas hasta la entrega.
+    const proposedBoxRes = await request('GET', '/api/boxes/current', null, newToken);
+    assert.strictEqual(proposedBoxRes.body.box.status, 'PROPOSED');
+    assert.strictEqual(proposedBoxRes.body.box.items, null, 'Prendas ocultas también en PROPOSED');
+    const stylistLogin = await request('POST', '/api/auth/login', { email: 'estilista@theclothesbox.co', password: 'estilista123' });
+    const stylistToken = stylistLogin.body.token;
+    const approveRes = await request('POST', `/api/stylist/boxes/${proposedBoxRes.body.box.id}/approve`, {}, stylistToken);
+    assert.strictEqual(approveRes.status, 200);
+    const prepStep = await request('POST', '/api/boxes/simulate-step', {}, newToken);
+    assert.strictEqual(prepStep.body.status, 'PREPARING');
     const preparingBoxRes = await request('GET', '/api/boxes/current', null, newToken);
     assert.ok(preparingBoxRes.body.box.status === 'PREPARING', 'Should be preparing');
     assert.ok(preparingBoxRes.body.box.items === null, 'Prendas deben ser NULL mientras la caja no esté entregada para clientes');
-    console.log('✓ 5. REGLA DE SORPRESA VERIFICADA EN CLIENTE: Prendas ocultas en estado PREPARING (items = null)');
+    console.log('✓ 5. REGLA DE SORPRESA VERIFICADA EN CLIENTE: Prendas ocultas en PROPOSED y PREPARING (items = null)');
 
     // 6. En SHIPPED sigue oculta
     const shipRes = await request('POST', '/api/boxes/simulate-step', {}, newToken);
@@ -219,6 +235,7 @@ async function runTests() {
     console.log('✓ 15. Vista administrativa de devoluciones con prendas, fotos y clientes confirmada');
 
     await runSprint2Tests({ token, newToken, newEmail, adminToken, deliveredBox: deliveredBoxRes.body.box });
+    await runPrompt2Tests({ token, adminToken, stylistToken, deliveredBox: deliveredBoxRes.body.box });
 
     console.log('\n======================================================');
     console.log('¡TODAS LAS PRUEBAS DE BACKEND Y ROLES PASARON CON ÉXITO!');
@@ -387,6 +404,227 @@ async function runSprint2Tests({ token, newToken, newEmail, adminToken, delivere
   const afterSilent = (await request('GET', '/api/admin/cancellation-reasons', null, adminToken)).body;
   assert.strictEqual(afterSilent.unanswered, after.unanswered + 1);
   console.log('✓ 27. HU-13: cancelar sin responder la encuesta también funciona');
+}
+
+function syntheticProfiles() {
+  const base = { line: 'u', risk: 1 };
+  return [
+    { ...base, styles: ['urbano', 'retro'], occasions: ['clase'], fit: 'holgado', plan: 'esencial', measures: { height: 175, weight: 70, build: 'media', usual: 'M' } },
+    { ...base, styles: ['clasico', 'minimal'], occasions: ['entrevista', 'fiesta'], fit: 'regular', plan: 'estilo', measures: { height: 182, weight: 85, build: 'robusta', usual: 'L' } },
+    { ...base, styles: ['minimal'], occasions: ['clase'], fit: 'ajustado', plan: 'esencial', line: 'f', measures: { height: 160, weight: 52, build: 'delgada', usual: 'S' } },
+    { ...base, styles: ['deportivo', 'urbano'], occasions: ['clase', 'fiesta'], fit: 'holgado', plan: 'estilo', measures: { height: 170, weight: 95, build: 'robusta', usual: 'XL' } },
+    { ...base, styles: ['artesanal', 'retro', 'clasico'], occasions: ['fiesta'], fit: 'regular', plan: 'esencial', measures: { height: 168, weight: 60, build: 'media', usual: 'M' } },
+    { ...base, styles: ['retro'], occasions: ['entrevista'], fit: 'regular', plan: 'estilo', line: 'm', measures: { height: 190, weight: 100, build: 'robusta', usual: 'XXL' } }
+  ];
+}
+
+async function newClient(profileOverrides = {}) {
+  const email = `p2_${Date.now()}_${Math.random().toString(16).slice(2, 6)}@test.com`;
+  const reg = await request('POST', '/api/auth/register', validRegistration(email));
+  const tok = reg.body.token;
+  await request('PUT', '/api/profile', { ...syntheticProfiles()[0], ...profileOverrides }, tok);
+  const current = await request('GET', '/api/boxes/current', null, tok);
+  return { email, token: tok, boxId: current.body.box.id, userId: reg.body.user.id };
+}
+
+async function runPrompt2Tests({ token, adminToken, stylistToken, deliveredBox }) {
+  console.log('\n--- SPRINT 2 · PROMPT 2 ---');
+
+  // 28. HU-05: todo el catálogo migrado tiene variantes con stock inicial 10
+  assert.ok(db.catalog.length >= 18);
+  db.catalog.slice(0, 18).forEach(p => {
+    assert.ok(Array.isArray(p.variants) && p.variants.length > 0, `${p.id} sin variantes`);
+    p.variants.forEach(v => assert.ok(v.size && v.color && v.stock === 10, `${p.id} variante inválida`));
+  });
+  console.log('✓ 28. HU-05: 18 prendas migradas a variantes (talla, color, stock 10)');
+
+  // 29. HU-05: importación CSV con filas válidas y una inválida
+  const csv = [
+    'marca,nombre,categoria,estilo,ocasion,talla,color,precio_mayorista,stock',
+    'Ceiba Estudio,Camisa Prueba CSV,top,minimal|clasico,clase,M,Blanco,35000,4',
+    'Ceiba Estudio,Camisa Prueba CSV,top,minimal|clasico,clase,L,Blanco,35000,2',
+    'Mono Textil,Camiseta Boxy Heavyweight 260g,top,urbano,clase,M,Ladrillo lavado,24000,7',
+    'Mono Textil,Pantalón Fantasma,bottom,urbano,clase,XXXL,Negro,40000,3',
+    'Mono Textil,Pantalón Fantasma,falda,urbano,clase,M,Negro,40000,3'
+  ].join('\n');
+  const importRes = await request('POST', '/api/admin/products/import', { csv }, adminToken);
+  assert.strictEqual(importRes.status, 200);
+  assert.strictEqual(importRes.body.imported, 3);
+  assert.strictEqual(importRes.body.rejected, 2);
+  assert.deepStrictEqual(importRes.body.errors.map(e => e.row), [5, 6]);
+  assert.ok(/Talla/.test(importRes.body.errors[0].reason) && /Categoría/.test(importRes.body.errors[1].reason));
+  assert.strictEqual(importRes.body.createdProducts.length, 1);
+  const imported = db.catalog.find(p => p.name === 'Camisa Prueba CSV');
+  assert.deepStrictEqual(imported.variants.map(v => [v.size, v.stock]), [['M', 4], ['L', 2]]);
+  const boxy = db.getProductById('prod-01');
+  assert.strictEqual(boxy.variants.find(v => v.size === 'M').stock, 7, 'La prenda existente actualiza su variante');
+  assert.strictEqual(boxy.wholesalePriceCOP, 24000);
+  const clientImport = await request('POST', '/api/admin/products/import', { csv }, token);
+  assert.strictEqual(clientImport.status, 403);
+  const exampleCsv = fs.readFileSync(path.join(__dirname, '..', 'docs', 'ejemplo_catalogo.csv'), 'utf8');
+  const exampleRes = await request('POST', '/api/admin/products/import', { csv: exampleCsv }, adminToken);
+  assert.strictEqual(exampleRes.status, 200);
+  assert.ok(exampleRes.body.imported > 0);
+  console.log(`✓ 29. HU-05: CSV importado fila por fila (3 importadas, 2 rechazadas con motivo); docs/ejemplo_catalogo.csv: ${exampleRes.body.imported} filas, ${exampleRes.body.rejected} rechazadas`);
+
+  // 30. HU-05: una prenda sin stock en la talla del usuario nunca se selecciona
+  const profile = syntheticProfiles()[0];
+  const catalogCopy = JSON.parse(JSON.stringify(db.catalog));
+  const firstPick = curateBox(profile, catalogCopy).recommendations[0];
+  const target = catalogCopy.find(p => p.id === firstPick.productId);
+  target.variants.filter(v => v.size === firstPick.size).forEach(v => { v.stock = 0; });
+  const afterZero = curateBox(profile, catalogCopy);
+  assert.ok(!afterZero.itemIds.includes(target.id), 'Prenda sin stock en la talla no debe elegirse');
+  catalogCopy.forEach(p => p.variants.forEach(v => { v.stock = 0; }));
+  const emptyCatalog = curateBox(profile, catalogCopy);
+  assert.strictEqual(emptyCatalog.itemIds.length, 0, 'Sin stock no se elige nada');
+  assert.deepStrictEqual(emptyCatalog.missingSlots, ['top', 'bottom', 'capa']);
+  console.log('✓ 30. HU-05: el motor descarta prendas con stock 0 en la talla del usuario');
+
+  // 31. HU-06: costo objetivo por plan y reemplazo de la prenda más cara
+  assert.strictEqual(config.PLANS.esencial.targetCostCOP, 100364);
+  assert.strictEqual(config.PLANS.estilo.targetCostCOP, 160914);
+  const loose = curateBox(profile, db.catalog, [], { plans: { esencial: { ...config.PLANS.esencial, targetCostCOP: 10000000 } } });
+  const cap = loose.totalCostCOP - 1; // la mejor combinación supera este tope por 1 peso
+  const tight = curateBox(profile, db.catalog, [], { plans: { esencial: { ...config.PLANS.esencial, targetCostCOP: cap } } });
+  assert.ok(tight.withinCap && tight.totalCostCOP <= cap, 'Con tope ajustado la caja queda dentro');
+  assert.ok(tight.recommendations.some(r => r.replacedForCost), 'Se reemplazó al menos una prenda por costo');
+  const mostExpensive = loose.recommendations.slice().sort((a, b) => b.costCOP - a.costCOP)[0];
+  assert.ok(!tight.itemIds.includes(mostExpensive.productId), 'La prenda más cara fue la reemplazada');
+  console.log('✓ 31. HU-06: costo objetivo respetado reemplazando la prenda más cara (Esencial 100.364 / Estilo 160.914 COP)');
+
+  // 32. HU-06: perfiles sintéticos dentro del tope y con talla disponible
+  const results = syntheticProfiles().map(pr => {
+    const box = curateBox(pr, db.catalog);
+    const sizeOk = box.recommendations.every(r => stockInSize(db.getProductById(r.productId), r.size) > 0);
+    const complete = box.itemIds.length === config.PLANS[pr.plan].items;
+    return { withinCap: box.withinCap, sizeOk, complete };
+  });
+  const pct = key => Math.round((results.filter(r => r[key]).length / results.length) * 100);
+  console.log(`   Perfiles sintéticos: ${results.length} · dentro del tope ${pct('withinCap')} % · talla disponible ${pct('sizeOk')} % · caja completa ${pct('complete')} %`);
+  assert.strictEqual(pct('withinCap'), 100);
+  assert.strictEqual(pct('sizeOk'), 100);
+  assert.strictEqual(pct('complete'), 100);
+  console.log('✓ 32. HU-06: 6 perfiles sintéticos, 100 % dentro del tope y con talla disponible');
+
+  // 33. HU-06: explicación guardada por prenda y visible en la caja entregada
+  const delivered = await request('GET', '/api/boxes/current', null, (await request('POST', '/api/auth/login', { email: db.findUserById(db.getBoxById(deliveredBox.id).userId).email, password: 'nuevaClave456' })).body.token);
+  assert.ok(delivered.body.box.items.every(i => i.recommendation && typeof i.recommendation.explanation === 'string'), 'Cada prenda entregada muestra su motivo');
+  assert.ok(delivered.body.box.items[0].recommendation.reasons, 'Incluye estilo, ocasión, ajuste y puntaje');
+  console.log('✓ 33. HU-06: motivo de cada prenda (estilo, ocasión, ajuste, puntaje) guardado y visible al cliente');
+
+  // 34. HU-07: roles y permisos del estilista
+  const stylistMe = await request('GET', '/api/auth/me', null, stylistToken);
+  assert.strictEqual(stylistMe.body.user.role, 'STYLIST');
+  assert.strictEqual((await request('GET', '/api/stylist/queue', null, stylistToken)).status, 200);
+  assert.strictEqual((await request('GET', '/api/stylist/queue', null, adminToken)).status, 200, 'El admin también accede');
+  assert.strictEqual((await request('GET', '/api/stylist/queue', null, token)).status, 403, 'El cliente no accede');
+  assert.strictEqual((await request('GET', '/api/admin/metrics', null, stylistToken)).status, 403, 'El estilista no accede al admin');
+  console.log('✓ 34. HU-07: rol STYLIST con cola propia; ADMIN accede a todo; CLIENT bloqueado');
+
+  // 35. HU-07: despacho bloqueado si la caja no está aprobada
+  const c1 = await newClient();
+  const blockedStep = await request('POST', '/api/boxes/simulate-step', {}, c1.token);
+  assert.strictEqual(blockedStep.status, 409);
+  assert.strictEqual(blockedStep.body.error, 'La caja no ha sido aprobada');
+  const blockedAdmin = await request('POST', `/api/admin/boxes/${c1.boxId}/status`, { status: 'SHIPPED' }, adminToken);
+  assert.strictEqual(blockedAdmin.status, 409);
+  assert.strictEqual(blockedAdmin.body.error, 'La caja no ha sido aprobada');
+  console.log('✓ 35. HU-07: simulate-step y rutas de admin bloqueadas con 409 "La caja no ha sido aprobada"');
+
+  // 36. HU-07: reemplazo de prenda con motivo, validando talla y stock
+  const queue = (await request('GET', '/api/stylist/queue', null, stylistToken)).body.boxes;
+  const queued = queue.find(b => b.id === c1.boxId);
+  assert.ok(queued && queued.subscriber && queued.profile && queued.items.length === 3, 'La cola muestra perfil y prendas propuestas');
+  assert.ok(queued.items.every(i => i.recommendation.explanation), 'El estilista ve el motivo de cada prenda');
+  const oldItem = queued.items[0];
+  const alts = (await request('GET', `/api/stylist/boxes/${c1.boxId}/alternatives`, null, stylistToken)).body.alternatives;
+  const alt = alts.find(a => a.category === oldItem.category);
+  assert.strictEqual((await request('POST', `/api/stylist/boxes/${c1.boxId}/replace`, { itemId: oldItem.id, newProductId: alt.productId }, stylistToken)).status, 400, 'Sin motivo se rechaza');
+  const noStock = db.catalog.find(p => p.id !== alt.productId && !queued.items.some(i => i.id === p.id));
+  const savedVariants = JSON.parse(JSON.stringify(noStock.variants));
+  noStock.variants.forEach(v => { v.stock = 0; });
+  const noStockRes = await request('POST', `/api/stylist/boxes/${c1.boxId}/replace`, { itemId: oldItem.id, newProductId: noStock.id, reason: 'Probar' }, stylistToken);
+  assert.strictEqual(noStockRes.status, 409);
+  noStock.variants = savedVariants;
+  const replaceRes = await request('POST', `/api/stylist/boxes/${c1.boxId}/replace`, { itemId: oldItem.id, newProductId: alt.productId, reason: 'Prefiere colores neutros' }, stylistToken);
+  assert.strictEqual(replaceRes.status, 200);
+  assert.ok(replaceRes.body.box.items.some(i => i.id === alt.productId) && !replaceRes.body.box.items.some(i => i.id === oldItem.id));
+  const correction = db.data.corrections.find(c => c.boxId === c1.boxId && c.type === 'REPLACE');
+  assert.ok(correction && correction.stylistId === 'usr_stylist_01' && correction.reason === 'Prefiere colores neutros' && correction.createdAt);
+  assert.strictEqual(correction.removedProductId, oldItem.id);
+  assert.strictEqual(correction.addedProductId, alt.productId);
+  console.log('✓ 36. HU-07: reemplazo con motivo, valida stock en la talla del suscriptor y deja la corrección (quién, cuándo, por qué)');
+
+  // 37. HU-07: rechazo de la propuesta y nueva propuesta sin esas prendas
+  const beforeReject = db.getBoxById(c1.boxId).itemIds.slice();
+  const rejectRes = await request('POST', `/api/stylist/boxes/${c1.boxId}/reject`, { reason: 'No refleja su estilo' }, stylistToken);
+  assert.strictEqual(rejectRes.status, 200);
+  assert.strictEqual(rejectRes.body.box.status, 'PROPOSED');
+  assert.ok(beforeReject.every(id => !rejectRes.body.box.items.some(i => i.id === id)), 'La nueva propuesta no repite prendas rechazadas');
+  assert.deepStrictEqual(rejectRes.body.box.reviewLog.map(l => l.action), ['REPLACE', 'REJECT']);
+  console.log('✓ 37. HU-07: rechazo con motivo genera una nueva propuesta y queda auditado');
+
+  // 38. HU-07: aprobación ("Lista para despacho") y luego el despacho avanza
+  const approveRes = await request('POST', `/api/stylist/boxes/${c1.boxId}/approve`, { reason: 'Revisada' }, stylistToken);
+  assert.strictEqual(approveRes.status, 200);
+  assert.strictEqual(approveRes.body.box.status, 'APPROVED');
+  assert.strictEqual(db.getBoxById(c1.boxId).approvedBy, 'usr_stylist_01');
+  assert.strictEqual((await request('POST', `/api/stylist/boxes/${c1.boxId}/approve`, {}, stylistToken)).status, 409, 'No se aprueba dos veces');
+  const shipNow = await request('POST', '/api/boxes/simulate-step', {}, c1.token);
+  assert.strictEqual(shipNow.body.status, 'PREPARING');
+  console.log('✓ 38. HU-07: caja aprobada pasa a "Lista para despacho" y el despacho se desbloquea');
+
+  // 39. HU-06: servicio batch de la caja del mes
+  const batchRes = await request('POST', '/api/admin/boxes/generate-batch', {}, adminToken);
+  assert.strictEqual(batchRes.status, 200);
+  assert.ok(batchRes.body.generatedCount >= 1, 'Genera para suscriptores sin caja en curso');
+  batchRes.body.generated.forEach(g => assert.strictEqual(db.getBoxById(g.boxId).status, 'PROPOSED'));
+  assert.ok(batchRes.body.skipped.some(sk => sk.userId === c1.userId), 'Salta a quien tiene caja en curso');
+  const batchAgain = await request('POST', '/api/admin/boxes/generate-batch', {}, adminToken);
+  assert.strictEqual(batchAgain.body.generatedCount, 0, 'No duplica cajas');
+  assert.strictEqual((await request('POST', '/api/admin/boxes/generate-batch', {}, stylistToken)).status, 403);
+  console.log(`✓ 39. HU-06: batch generó ${batchRes.body.generatedCount} cajas PROPOSED (${batchRes.body.withinCapPct} % dentro del tope) y no duplica`);
+
+  // 40. HU-03: guardar progreso parcial y retomarlo al volver a iniciar sesión
+  const q = await newClient();
+  const answers = { styles: ['retro', 'minimal'], styleWeights: { retro: 1, minimal: 0.5 } };
+  assert.strictEqual((await request('PUT', '/api/quiz/progress', { step: 9 }, q.token)).status, 400);
+  const save1 = await request('PUT', '/api/quiz/progress', { step: 2, answers, repeat: true }, q.token);
+  assert.strictEqual(save1.status, 200);
+  const startedAt = save1.body.session.startedAt;
+  await request('PUT', '/api/quiz/progress', { step: 3, answers }, q.token);
+  const relogin = await request('POST', '/api/auth/login', { email: q.email, password: 'password123' });
+  const resumed = await request('GET', '/api/quiz/progress', null, relogin.body.token);
+  assert.strictEqual(resumed.body.session.step, 3, 'Retoma desde la pregunta donde quedó');
+  assert.deepStrictEqual(resumed.body.session.answers, answers);
+  assert.strictEqual(resumed.body.session.startedAt, startedAt, 'Conserva la hora de inicio');
+  console.log('✓ 40. HU-03: progreso parcial guardado en backend y retomado tras iniciar sesión (paso 3)');
+
+  // 41. HU-03: repetir el quiz crea nueva versión, conserva la anterior y mide el tiempo
+  const firstProfile = db.getProfile(q.userId);
+  assert.ok(!firstProfile.version || firstProfile.version === 1);
+  const done = await request('PUT', '/api/profile', { ...syntheticProfiles()[0], styles: ['retro', 'minimal'], styleWeights: answers.styleWeights, source: 'quiz' }, relogin.body.token);
+  assert.strictEqual(done.status, 200);
+  assert.strictEqual(done.body.profile.version, 2);
+  assert.ok(Number.isInteger(done.body.quizSession.durationSec), 'Mide inicio y fin');
+  const history = await request('GET', '/api/profile/history', null, relogin.body.token);
+  assert.strictEqual(history.body.currentVersion, 2);
+  assert.strictEqual(history.body.versions.length, 1);
+  assert.deepStrictEqual(history.body.versions[0].snapshot.styles, ['urbano', 'retro'], 'La versión anterior se conserva');
+  assert.ok(!isNaN(Date.parse(history.body.versions[0].archivedAt)));
+  assert.strictEqual((await request('GET', '/api/quiz/progress', null, relogin.body.token)).body.session, null, 'La sesión queda cerrada');
+  assert.deepStrictEqual(db.getProfile(q.userId).styleWeights, answers.styleWeights, 'El juego de estilos guarda pesos');
+  const metrics = (await request('GET', '/api/admin/metrics', null, adminToken)).body;
+  assert.ok(metrics.quiz.completed >= 1 && Number.isInteger(metrics.quiz.averageDurationSec) && metrics.quiz.targetSec === 180);
+  console.log('✓ 41. HU-03: nueva versión del perfil con historial fechado y tiempo de completado en el panel');
+
+  // 42. HU-03: los pesos del juego de estilos influyen en el puntaje del motor
+  const retroProduct = db.getProductById('prod-13');
+  const plain = scoreProduct({ styles: ['minimal'], occasions: [], fit: 'x' }, retroProduct).score;
+  const weighted = scoreProduct({ styles: ['minimal'], occasions: [], fit: 'x', styleWeights: { retro: 1 } }, retroProduct).score;
+  assert.ok(weighted > plain);
+  console.log('✓ 42. HU-03: los pesos del juego de estilos ocultos suben el puntaje de prendas afines');
 }
 
 runTests().catch(err => {

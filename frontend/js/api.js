@@ -89,7 +89,19 @@ TCB.api = (() => {
     },
     profile: {
       get: () => request('/api/profile'),
-      save: data => request('/api/profile', { method: 'PUT', body: data })
+      save: data => request('/api/profile', { method: 'PUT', body: data }),
+      history: () => request('/api/profile/history')
+    },
+    quiz: {
+      progress: () => request('/api/quiz/progress'),
+      saveProgress: data => request('/api/quiz/progress', { method: 'PUT', body: data })
+    },
+    stylist: {
+      queue: () => request('/api/stylist/queue'),
+      alternatives: boxId => request(`/api/stylist/boxes/${boxId}/alternatives`),
+      approve: (boxId, reason) => request(`/api/stylist/boxes/${boxId}/approve`, { method: 'POST', body: { reason } }),
+      replace: (boxId, data) => request(`/api/stylist/boxes/${boxId}/replace`, { method: 'POST', body: data }),
+      reject: (boxId, reason) => request(`/api/stylist/boxes/${boxId}/reject`, { method: 'POST', body: { reason } })
     },
     boxes: {
       current: () => request('/api/boxes/current'),
@@ -109,6 +121,8 @@ TCB.api = (() => {
       clients: () => request('/api/admin/clients'),
       products: () => request('/api/admin/products'),
       saveProduct: data => request('/api/admin/products', { method: 'POST', body: data }),
+      importProducts: csv => request('/api/admin/products/import', { method: 'POST', body: { csv } }),
+      generateBatch: () => request('/api/admin/boxes/generate-batch', { method: 'POST' }),
       boxes: () => request('/api/admin/boxes'),
       updateBoxStatus: (boxId, status) => request(`/api/admin/boxes/${boxId}/status`, { method: 'POST', body: { status } }),
       returns: () => request('/api/admin/returns'),

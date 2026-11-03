@@ -3,7 +3,8 @@ const path = require('path');
 const crypto = require('crypto');
 
 const DB_FILE = process.env.TCB_DB_FILE || path.join(__dirname, 'data', 'db.json');
-const CATALOG_FILE = path.join(__dirname, 'data', 'catalog.json');
+const CATALOG_FILE = process.env.TCB_CATALOG_FILE || path.join(__dirname, 'data', 'catalog.json');
+const { normalizeProduct } = require('./catalog');
 
 function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
   const hash = crypto.scryptSync(password, salt, 64).toString('hex');
@@ -19,7 +20,7 @@ function verifyPassword(password, stored) {
 }
 
 // Colecciones de la base. Las de Sprint 2 se crean vacías en bases existentes.
-const COLLECTIONS = ['users', 'profiles', 'boxes', 'ratings', 'returns', 'consents', 'authTokens', 'subscriptions', 'cancellations'];
+const COLLECTIONS = ['users', 'profiles', 'boxes', 'ratings', 'returns', 'consents', 'authTokens', 'subscriptions', 'cancellations', 'corrections', 'quizSessions', 'profileVersions'];
 
 function emptyData() {
   return Object.fromEntries(COLLECTIONS.map(c => [c, []]));
@@ -41,6 +42,7 @@ class Database {
     if (fs.existsSync(CATALOG_FILE)) {
       try {
         this.catalog = JSON.parse(fs.readFileSync(CATALOG_FILE, 'utf8'));
+        if (this.catalog.filter(normalizeProduct).length > 0) this.saveCatalog();
       } catch (err) {
         console.error('Error reading catalog:', err);
       }
@@ -84,9 +86,26 @@ class Database {
       needsSave = true;
     }
 
+    // HU-07: usuario estilista de demostración
+    if (!this.data.users.some(u => u.email === 'estilista@theclothesbox.co')) {
+      this.data.users.push({
+        id: 'usr_stylist_01',
+        name: 'Laura Estilista',
+        email: 'estilista@theclothesbox.co',
+        passwordHash: hashPassword('estilista123'),
+        role: 'STYLIST',
+        createdAt: '2026-11-01T08:00:00.000Z'
+      });
+      needsSave = true;
+    }
+
     if (needsSave) {
       this.save();
     }
+  }
+
+  saveCatalog() {
+    fs.writeFileSync(CATALOG_FILE, JSON.stringify(this.catalog, null, 2) + '\n', 'utf8');
   }
 
   save() {
@@ -419,6 +438,90 @@ class Database {
     return { total: this.data.cancellations.length, counts, unanswered };
   }
 
+  // HU-07: correcciones del estilista (ejemplos para el reentrenamiento de HU-11)
+  addCorrection(data) {
+    const correction = {
+      id: `cor_${crypto.randomBytes(6).toString('hex')}`,
+      ...data,
+      createdAt: new Date().toISOString()
+    };
+    this.data.corrections.push(correction);
+    this.save();
+    return correction;
+  }
+
+  // HU-03: sesiones del quiz (progreso parcial y tiempo de completado)
+  getOpenQuizSession(userId) {
+    return this.data.quizSessions.find(q => q.userId === userId && q.status === 'IN_PROGRESS') || null;
+  }
+
+  saveQuizProgress(userId, { step, answers, repeat }) {
+    let session = this.getOpenQuizSession(userId);
+    if (!session) {
+      session = {
+        id: `quiz_${crypto.randomBytes(6).toString('hex')}`,
+        userId,
+        status: 'IN_PROGRESS',
+        repeat: !!repeat,
+        startedAt: new Date().toISOString()
+      };
+      this.data.quizSessions.push(session);
+    }
+    Object.assign(session, { step, answers, updatedAt: new Date().toISOString() });
+    this.save();
+    return session;
+  }
+
+  completeQuizSession(userId) {
+    const session = this.getOpenQuizSession(userId);
+    if (!session) return null;
+    const completedAt = new Date();
+    Object.assign(session, {
+      status: 'COMPLETED',
+      completedAt: completedAt.toISOString(),
+      durationSec: Math.round((completedAt - new Date(session.startedAt)) / 1000)
+    });
+    this.save();
+    return session;
+  }
+
+  getQuizStats() {
+    const done = this.data.quizSessions.filter(q => q.status === 'COMPLETED' && Number.isFinite(q.durationSec));
+    const avg = done.length ? Math.round(done.reduce((a, q) => a + q.durationSec, 0) / done.length) : null;
+    return {
+      completed: done.length,
+      inProgress: this.data.quizSessions.filter(q => q.status === 'IN_PROGRESS').length,
+      averageDurationSec: avg,
+      recent: done.slice(-10).reverse().map(q => {
+        const user = this.findUserById(q.userId);
+        return { userName: user ? user.name : q.userId, durationSec: q.durationSec, completedAt: q.completedAt, repeat: q.repeat };
+      })
+    };
+  }
+
+  // HU-03: el perfil de estilo anterior se conserva como versión al repetir el quiz
+  archiveProfileVersion(userId) {
+    const profile = this.getProfile(userId);
+    if (!profile || !profile.done) return null;
+    const { userId: _u, ...snapshot } = profile;
+    const version = {
+      id: `pv_${crypto.randomBytes(6).toString('hex')}`,
+      userId,
+      version: profile.version || 1,
+      snapshot: JSON.parse(JSON.stringify(snapshot)),
+      archivedAt: new Date().toISOString()
+    };
+    this.data.profileVersions.push(version);
+    this.save();
+    return version;
+  }
+
+  getProfileVersions(userId) {
+    return this.data.profileVersions
+      .filter(v => v.userId === userId)
+      .sort((a, b) => b.version - a.version);
+  }
+
   getAllUsers() {
     return this.data.users.map(u => {
       const profile = this.getProfile(u.id);
@@ -485,16 +588,21 @@ class Database {
 
   createBox(userId, boxData) {
     const box = {
-      id: `box_${String(Date.now()).slice(-6)}`,
+      id: `box_${crypto.randomBytes(5).toString('hex')}`,
       userId,
       cycle: boxData.cycle || 1,
-      status: boxData.status || 'PREPARING',
+      status: boxData.status || 'PROPOSED',
       plan: boxData.plan || 'esencial',
       address: boxData.address || 'Cali, Colombia',
       createdAt: new Date().toISOString(),
       deliveredAt: null,
       estimatedDelivery: boxData.estimatedDelivery || new Date(Date.now() + 4 * 86400000).toISOString().split('T')[0],
       itemIds: boxData.itemIds || [],
+      recommendations: boxData.recommendations || [],
+      totalCostCOP: boxData.totalCostCOP ?? null,
+      targetCostCOP: boxData.targetCostCOP ?? null,
+      withinCap: boxData.withinCap ?? null,
+      reviewLog: [],
       unboxed: false
     };
     this.data.boxes.push(box);
@@ -636,13 +744,14 @@ class Database {
       p = { ...productData, id: newId };
       this.catalog.push(p);
     }
-    fs.writeFileSync(CATALOG_FILE, JSON.stringify(this.catalog, null, 2), 'utf8');
+    normalizeProduct(p);
+    this.saveCatalog();
     return p;
   }
 
   // Admin Metrics
   getAdminMetrics() {
-    const clients = this.data.users.filter(u => u.role !== 'ADMIN');
+    const clients = this.data.users.filter(u => (u.role || 'CLIENT') === 'CLIENT');
     const totalBoxes = this.data.boxes.length;
     const deliveredBoxes = this.data.boxes.filter(b => b.status === 'DELIVERED' || b.status === 'RATED').length;
     const inTransitBoxes = this.data.boxes.filter(b => b.status === 'SHIPPED').length;
