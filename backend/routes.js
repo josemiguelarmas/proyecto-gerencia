@@ -1,6 +1,7 @@
 const { db, verifyPassword } = require('./database');
 const { signToken, authenticateRequest } = require('./auth');
-const { calculateFit, curateBoxItems } = require('./engine');
+const { calculateFit, curateBox, explainProduct } = require('./engine');
+const { importCatalogCsv, stockInSize } = require('./catalog');
 const config = require('./config');
 const mail = require('./mail');
 const { runReviewReminders } = require('./jobs');
@@ -47,6 +48,68 @@ function parseScore(value, label) {
     throw err;
   }
   return n;
+}
+
+// HU-07: estados que significan que la caja ya pasó la revisión del estilista.
+// Las cajas creadas antes de HU-07 (PREPARING, SHIPPED…) se consideran aprobadas.
+const UNAPPROVED_STATUSES = ['PROPOSED', 'REJECTED'];
+const OPEN_BOX_STATUSES = ['PROPOSED', 'APPROVED', 'PREPARING', 'SHIPPED', 'CREATED'];
+const NOT_APPROVED_ERROR = 'La caja no ha sido aprobada';
+
+function createCuratedBox(userId, profile, { cycle, address, receivedIds = [], excludeIds = [] }) {
+  const curated = curateBox(profile, db.catalog, receivedIds, { excludeIds });
+  const box = db.createBox(userId, {
+    cycle,
+    status: 'PROPOSED',
+    plan: profile.plan || 'esencial',
+    address,
+    itemIds: curated.itemIds,
+    recommendations: curated.recommendations,
+    totalCostCOP: curated.totalCostCOP,
+    targetCostCOP: curated.targetCostCOP,
+    withinCap: curated.withinCap
+  });
+  return { box, curated };
+}
+
+function logReview(box, user, action, reason, details = {}) {
+  const entry = { action, by: user.id, byName: user.name, role: user.role, at: new Date().toISOString(), reason: reason || '', ...details };
+  box.reviewLog = [...(box.reviewLog || []), entry];
+  return entry;
+}
+
+// Vista de una caja para el estilista: perfil del suscriptor y prendas con su explicación.
+function stylistBoxView(box) {
+  const user = db.findUserById(box.userId);
+  const profile = db.getProfile(box.userId) || {};
+  return {
+    id: box.id,
+    cycle: box.cycle,
+    status: box.status,
+    plan: box.plan,
+    createdAt: box.createdAt,
+    totalCostCOP: box.totalCostCOP,
+    targetCostCOP: box.targetCostCOP,
+    withinCap: box.withinCap,
+    reviewLog: box.reviewLog || [],
+    subscriber: user ? { id: user.id, name: user.name, email: user.email } : null,
+    profile: {
+      styles: profile.styles || [],
+      occasions: profile.occasions || [],
+      fit: profile.fit,
+      line: profile.line,
+      plan: profile.plan,
+      measures: profile.measures || {},
+      styleWeights: profile.styleWeights || null
+    },
+    items: (box.itemIds || []).map(id => {
+      const p = db.getProductById(id);
+      if (!p) return null;
+      const rec = (box.recommendations || []).find(x => x.productId === id) || explainProduct(profile, p);
+      const fit = calculateFit(profile, p);
+      return { ...p, cut: p.fit, fit, recommendation: rec, stockInSize: stockInSize(p, fit.size) };
+    }).filter(Boolean)
+  };
 }
 
 function sendJson(res, statusCode, data) {
@@ -230,6 +293,113 @@ async function handleApiRequest(req, res, pathname) {
     }
 
     // ----------------------------------------------------
+    // 3a. STYLIST ROUTES (Roles: STYLIST y ADMIN) — HU-07
+    // ----------------------------------------------------
+    if (pathname.startsWith('/api/stylist/')) {
+      if (authUser.role !== 'STYLIST' && authUser.role !== 'ADMIN') {
+        return sendJson(res, 403, { error: 'Acceso denegado: se requiere rol de Estilista.' });
+      }
+
+      if (pathname === '/api/stylist/queue' && req.method === 'GET') {
+        const boxes = db.data.boxes
+          .filter(b => b.status === 'PROPOSED')
+          .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+          .map(stylistBoxView);
+        return sendJson(res, 200, { boxes });
+      }
+
+      // Alternativas para reemplazar una prenda: misma categoría, con stock en la talla del suscriptor.
+      const altMatch = pathname.match(/^\/api\/stylist\/boxes\/([^/]+)\/alternatives$/);
+      if (altMatch && req.method === 'GET') {
+        const box = db.getBoxById(altMatch[1]);
+        if (!box) return sendJson(res, 404, { error: 'Caja no encontrada.' });
+        const profile = db.getProfile(box.userId) || {};
+        const alternatives = db.catalog
+          .filter(p => !box.itemIds.includes(p.id))
+          .map(p => ({ ...explainProduct(profile, p), name: p.name, brandName: p.brandName, category: p.category, imageUrl: p.imageUrl, stockInSize: stockInSize(p, calculateFit(profile, p).size) }))
+          .filter(a => a.stockInSize > 0)
+          .sort((a, b) => b.score - a.score);
+        return sendJson(res, 200, { alternatives });
+      }
+
+      const actionMatch = pathname.match(/^\/api\/stylist\/boxes\/([^/]+)\/(approve|replace|reject)$/);
+      if (actionMatch && req.method === 'POST') {
+        const [, boxId, action] = actionMatch;
+        const box = db.getBoxById(boxId);
+        if (!box) return sendJson(res, 404, { error: 'Caja no encontrada.' });
+        if (box.status !== 'PROPOSED') {
+          return sendJson(res, 409, { error: `Solo se pueden revisar cajas propuestas. Esta caja está en ${box.status}.` });
+        }
+        const body = await parseJsonBody(req);
+        const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+        const profile = db.getProfile(box.userId) || {};
+
+        if (action === 'approve') {
+          logReview(box, authUser, 'APPROVE', reason);
+          const updated = db.updateBox(box.id, { status: 'APPROVED', approvedAt: new Date().toISOString(), approvedBy: authUser.id });
+          return sendJson(res, 200, { success: true, message: 'Caja aprobada. Queda lista para despacho.', box: stylistBoxView(updated) });
+        }
+
+        if (!reason) {
+          return sendJson(res, 400, { error: 'Escribe el motivo de la corrección.' });
+        }
+
+        if (action === 'replace') {
+          const { itemId, newProductId } = body;
+          if (!box.itemIds.includes(itemId)) {
+            return sendJson(res, 400, { error: 'La prenda a reemplazar no está en esta caja.' });
+          }
+          const newProduct = db.getProductById(newProductId);
+          if (!newProduct) return sendJson(res, 404, { error: 'La prenda nueva no existe en el catálogo.' });
+          if (box.itemIds.includes(newProductId)) {
+            return sendJson(res, 400, { error: 'La prenda nueva ya está en la caja.' });
+          }
+          const size = calculateFit(profile, newProduct).size;
+          if (stockInSize(newProduct, size) <= 0) {
+            return sendJson(res, 409, { error: `No hay stock de "${newProduct.name}" en talla ${size}, la talla del suscriptor.` });
+          }
+          const itemIds = box.itemIds.map(id => (id === itemId ? newProductId : id));
+          const recommendations = (box.recommendations || []).filter(x => x.productId !== itemId)
+            .concat({ ...explainProduct(profile, newProduct), chosenByStylist: true, explanation: `Elegida por tu estilista: ${reason}` });
+          const totalCostCOP = itemIds.reduce((sum, id) => {
+            const p = db.getProductById(id);
+            return sum + (p ? p.wholesalePriceCOP || 0 : 0);
+          }, 0);
+          logReview(box, authUser, 'REPLACE', reason, { removedProductId: itemId, addedProductId: newProductId });
+          db.addCorrection({ type: 'REPLACE', boxId: box.id, subscriberId: box.userId, stylistId: authUser.id, removedProductId: itemId, addedProductId: newProductId, reason });
+          const updated = db.updateBox(box.id, { itemIds, recommendations, totalCostCOP, withinCap: box.targetCostCOP ? totalCostCOP <= box.targetCostCOP : null });
+          return sendJson(res, 200, {
+            success: true,
+            message: updated.withinCap === false ? 'Prenda reemplazada. Atención: la caja ahora supera el costo objetivo.' : 'Prenda reemplazada.',
+            box: stylistBoxView(updated)
+          });
+        }
+
+        // reject: la propuesta se descarta y el motor arma una nueva sin esas prendas.
+        const rejectedIds = box.itemIds.slice();
+        logReview(box, authUser, 'REJECT', reason, { rejectedProductIds: rejectedIds });
+        db.addCorrection({ type: 'REJECT', boxId: box.id, subscriberId: box.userId, stylistId: authUser.id, removedProductIds: rejectedIds, reason });
+        const received = db.getUserBoxes(box.userId).filter(b => b.id !== box.id).flatMap(b => b.itemIds || []);
+        const curated = curateBox(profile, db.catalog, received, { excludeIds: rejectedIds });
+        const updated = db.updateBox(box.id, {
+          itemIds: curated.itemIds,
+          recommendations: curated.recommendations,
+          totalCostCOP: curated.totalCostCOP,
+          targetCostCOP: curated.targetCostCOP,
+          withinCap: curated.withinCap,
+          proposalVersion: (box.proposalVersion || 1) + 1
+        });
+        return sendJson(res, 200, {
+          success: true,
+          message: 'Propuesta rechazada. El motor armó una nueva propuesta sin esas prendas, que vuelve a la cola.',
+          box: stylistBoxView(updated)
+        });
+      }
+
+      return sendJson(res, 404, { error: `Endpoint de estilista no encontrado: ${req.method} ${pathname}` });
+    }
+
+    // ----------------------------------------------------
     // 3. ADMIN-ONLY ROUTES (Role: ADMIN)
     // ----------------------------------------------------
     if (pathname.startsWith('/api/admin/')) {
@@ -242,7 +412,11 @@ async function handleApiRequest(req, res, pathname) {
       // Admin Metrics
       if (pathname === '/api/admin/metrics' && req.method === 'GET') {
         const metrics = db.getAdminMetrics();
-        return sendJson(res, 200, metrics);
+        return sendJson(res, 200, {
+          ...metrics,
+          quiz: { ...db.getQuizStats(), targetSec: config.QUIZ_TARGET_SECONDS },
+          plans: config.PLANS
+        });
       }
 
       // Admin Clients
@@ -265,6 +439,59 @@ async function handleApiRequest(req, res, pathname) {
         return sendJson(res, 201, { success: true, product: saved });
       }
 
+      // HU-05: importación de catálogo por CSV (body JSON { csv })
+      if (pathname === '/api/admin/products/import' && req.method === 'POST') {
+        const { csv } = await parseJsonBody(req);
+        if (typeof csv !== 'string' || !csv.trim()) {
+          return sendJson(res, 400, { error: 'Adjunta un archivo CSV con contenido.' });
+        }
+        const report = importCatalogCsv(csv, db.catalog);
+        if (report.fatal) return sendJson(res, 400, { error: report.fatal });
+        if (report.imported > 0) db.saveCatalog();
+        return sendJson(res, 200, { success: true, ...report });
+      }
+
+      // HU-06: genera la caja del mes para todos los suscriptores activos
+      if (pathname === '/api/admin/boxes/generate-batch' && req.method === 'POST') {
+        const now = new Date();
+        const monthKey = now.toISOString().slice(0, 7);
+        const generated = [];
+        const skipped = [];
+        db.data.users.filter(u => (u.role || 'CLIENT') === 'CLIENT').forEach(user => {
+          // TODO HU-08: getSubscription aún deriva ACTIVE del perfil completo; con pagos reales usará la colección subscriptions.
+          const sub = db.getSubscription(user.id);
+          const profile = db.getProfile(user.id);
+          if (sub.status !== 'ACTIVE' || !profile || !profile.done) {
+            return skipped.push({ userId: user.id, reason: 'Sin suscripción activa' });
+          }
+          const boxes = db.getUserBoxes(user.id);
+          const latest = boxes[0];
+          if (latest && OPEN_BOX_STATUSES.includes(latest.status)) {
+            return skipped.push({ userId: user.id, reason: `Tiene una caja en curso (${latest.status})` });
+          }
+          if (latest && (latest.createdAt || '').slice(0, 7) === monthKey) {
+            return skipped.push({ userId: user.id, reason: 'Ya tiene la caja de este mes' });
+          }
+          const { box, curated } = createCuratedBox(user.id, profile, {
+            cycle: (latest ? latest.cycle : 0) + 1,
+            address: (latest && latest.address) || profile.address || 'Cali, Colombia',
+            receivedIds: boxes.flatMap(b => b.itemIds || [])
+          });
+          generated.push({ userId: user.id, boxId: box.id, withinCap: curated.withinCap, complete: curated.missingSlots.length === 0 });
+        });
+        const pct = fn => (generated.length ? Math.round((generated.filter(fn).length / generated.length) * 100) : null);
+        return sendJson(res, 200, {
+          success: true,
+          month: monthKey,
+          generatedCount: generated.length,
+          skippedCount: skipped.length,
+          withinCapPct: pct(g => g.withinCap),
+          completePct: pct(g => g.complete),
+          generated,
+          skipped
+        });
+      }
+
       // Admin Boxes (Full visibility including items even in PREPARING or SHIPPED)
       if (pathname === '/api/admin/boxes' && req.method === 'GET') {
         const boxes = db.getAllBoxes();
@@ -275,9 +502,17 @@ async function handleApiRequest(req, res, pathname) {
       if (adminBoxStatusMatch && req.method === 'POST') {
         const boxId = adminBoxStatusMatch[1];
         const { status } = await parseJsonBody(req);
+        if (status === 'APPROVED' || status === 'PROPOSED') {
+          return sendJson(res, 400, { error: 'La aprobación se hace desde la cola del estilista para dejar registro de quién y por qué.' });
+        }
         const validStatuses = ['CREATED', 'PREPARING', 'SHIPPED', 'DELIVERED', 'RATED'];
         if (!validStatuses.includes(status)) {
           return sendJson(res, 400, { error: `Estado inválido. Debe ser uno de: ${validStatuses.join(', ')}` });
+        }
+        const target = db.getBoxById(boxId);
+        if (!target) return sendJson(res, 404, { error: 'Caja no encontrada.' });
+        if (UNAPPROVED_STATUSES.includes(target.status)) {
+          return sendJson(res, 409, { error: NOT_APPROVED_ERROR });
         }
         const updates = { status };
         if (status === 'DELIVERED') {
@@ -349,25 +584,54 @@ async function handleApiRequest(req, res, pathname) {
 
     // Profile PUT
     if (pathname === '/api/profile' && req.method === 'PUT') {
-      const body = await parseJsonBody(req);
+      const { source, ...body } = await parseJsonBody(req);
+
+      // HU-03: completar el quiz crea una nueva versión del perfil de estilo y cierra la sesión del quiz.
+      let quizSession = null;
+      if (source === 'quiz') {
+        const previous = db.getProfile(authUser.id);
+        const archived = db.archiveProfileVersion(authUser.id);
+        body.version = archived ? archived.version + 1 : ((previous && previous.version) || 1);
+        quizSession = db.completeQuizSession(authUser.id);
+      }
       const profile = db.saveProfile(authUser.id, { ...body, done: true });
 
-      // If user has no box yet, auto-curate their first box in PREPARING status
+      // Si el usuario aún no tiene caja, el motor arma la primera y queda PROPOSED para el estilista (HU-07).
       let boxes = db.getUserBoxes(authUser.id);
       let activeBox = boxes.find(b => b.status !== 'RATED') || boxes[0];
 
       if (!activeBox) {
-        const itemIds = curateBoxItems(profile, db.catalog, []);
-        activeBox = db.createBox(authUser.id, {
+        activeBox = createCuratedBox(authUser.id, profile, {
           cycle: 1,
-          status: 'PREPARING',
-          plan: profile.plan || 'esencial',
-          address: body.address || 'Calle 18 # 122-135, Pance, Cali',
-          itemIds
-        });
+          address: body.address || 'Calle 18 # 122-135, Pance, Cali'
+        }).box;
       }
 
-      return sendJson(res, 200, { profile, boxId: activeBox.id });
+      return sendJson(res, 200, { profile, boxId: activeBox.id, quizSession });
+    }
+
+    // HU-03: progreso parcial del quiz
+    if (pathname === '/api/quiz/progress' && req.method === 'GET') {
+      return sendJson(res, 200, { session: db.getOpenQuizSession(authUser.id) });
+    }
+
+    if (pathname === '/api/quiz/progress' && req.method === 'PUT') {
+      const { step, answers, repeat } = await parseJsonBody(req);
+      const stepNum = Number(step);
+      if (!Number.isInteger(stepNum) || stepNum < 1 || stepNum > 4) {
+        return sendJson(res, 400, { error: 'El paso del quiz debe estar entre 1 y 4.' });
+      }
+      const session = db.saveQuizProgress(authUser.id, { step: stepNum, answers: answers || {}, repeat });
+      return sendJson(res, 200, { session });
+    }
+
+    // HU-03: historial de versiones del perfil de estilo
+    if (pathname === '/api/profile/history' && req.method === 'GET') {
+      const current = db.getProfile(authUser.id);
+      return sendJson(res, 200, {
+        currentVersion: current ? current.version || 1 : null,
+        versions: db.getProfileVersions(authUser.id)
+      });
     }
 
     // Current Box GET (CRITICAL RULE: Hides products until DELIVERED or RATED)
@@ -387,6 +651,7 @@ async function handleApiRequest(req, res, pathname) {
         id: currentBox.id,
         cycle: currentBox.cycle,
         status: currentBox.status,
+        trackingNumber: currentBox.trackingNumber || null,
         plan: currentBox.plan,
         itemsCount: (currentBox.itemIds || []).length,
         address: currentBox.address,
@@ -401,7 +666,8 @@ async function handleApiRequest(req, res, pathname) {
               if (!p) return null;
               const fit = calculateFit(profile, p);
               const userRating = boxRatings.find(r => r.productId === p.id) || null;
-              return { ...p, fit, userRating };
+              const recommendation = (currentBox.recommendations || []).find(x => x.productId === p.id) || null;
+              return { ...p, fit, userRating, recommendation };
             }).filter(Boolean)
           : null,
         ratings: isDeliveredOrRated ? boxRatings : []
@@ -421,7 +687,14 @@ async function handleApiRequest(req, res, pathname) {
       let nextStatus = currentBox.status;
       let deliveredAt = currentBox.deliveredAt;
 
-      if (currentBox.status === 'CREATED' || currentBox.status === 'PREPARING') {
+      // HU-07: el despacho se bloquea mientras el estilista no apruebe la caja
+      if (UNAPPROVED_STATUSES.includes(currentBox.status)) {
+        return sendJson(res, 409, { error: NOT_APPROVED_ERROR });
+      }
+
+      if (currentBox.status === 'APPROVED') {
+        nextStatus = 'PREPARING';
+      } else if (currentBox.status === 'CREATED' || currentBox.status === 'PREPARING') {
         nextStatus = 'SHIPPED';
       } else if (currentBox.status === 'SHIPPED') {
         nextStatus = 'DELIVERED';
@@ -452,7 +725,8 @@ async function handleApiRequest(req, res, pathname) {
       const items = box.itemIds.map(id => {
         const p = db.getProductById(id);
         const userRating = boxRatings.find(r => r.productId === p.id) || null;
-        return { ...p, fit: calculateFit(profile, p), userRating };
+        const recommendation = (box.recommendations || []).find(x => x.productId === p.id) || null;
+        return { ...p, fit: calculateFit(profile, p), userRating, recommendation };
       });
 
       return sendJson(res, 200, { success: true, items });
@@ -577,16 +851,10 @@ async function handleApiRequest(req, res, pathname) {
       }
 
       const profile = db.getProfile(authUser.id) || {};
-      const receivedIds = boxes.flatMap(b => b.itemIds || []);
-      const newItemIds = curateBoxItems(profile, db.catalog, receivedIds);
-
-      const nextCycle = (currentBox ? currentBox.cycle : 0) + 1;
-      const newBox = db.createBox(authUser.id, {
-        cycle: nextCycle,
-        status: 'PREPARING',
-        plan: profile.plan || 'esencial',
+      const { box: newBox } = createCuratedBox(authUser.id, profile, {
+        cycle: (currentBox ? currentBox.cycle : 0) + 1,
         address: currentBox ? currentBox.address : 'Calle 18 # 122-135, Pance, Cali',
-        itemIds: newItemIds
+        receivedIds: boxes.flatMap(b => b.itemIds || [])
       });
 
       return sendJson(res, 201, {

@@ -98,6 +98,13 @@ TCB.views.admin = (() => {
         <!-- KPI SUMMARY CARDS -->
         <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:16px;margin-bottom:var(--s-6)">
           <div style="background:var(--sheet);border:var(--line);padding:20px;border-radius:var(--r-1)">
+            <p class="mono small muted">TIEMPO DEL QUIZ</p>
+            <h3 class="display" style="font-size:var(--fs-3xl);margin-top:6px;color:var(--ink)">${formatDuration(metrics?.quiz?.averageDurationSec)}</h3>
+            <span class="small ${metrics?.quiz?.averageDurationSec > (metrics?.quiz?.targetSec || 180) ? 'text-warn' : 'muted'}">
+              Meta ${formatDuration(metrics?.quiz?.targetSec || 180)} · ${metrics?.quiz?.completed || 0} completados
+            </span>
+          </div>
+          <div style="background:var(--sheet);border:var(--line);padding:20px;border-radius:var(--r-1)">
             <p class="mono small muted">CLIENTES REGISTRADOS</p>
             <h3 class="display" style="font-size:var(--fs-3xl);margin-top:6px;color:var(--ink)">${metrics?.totalClients || clients.length}</h3>
             <span class="small" style="color:var(--brand-box)">En Cali, Colombia</span>
@@ -181,20 +188,42 @@ TCB.views.admin = (() => {
     }
   }
 
+  function formatDuration(sec) {
+    if (!Number.isFinite(sec)) return '—';
+    return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')} min`;
+  }
+
+  const cop = n => `$${Number(n || 0).toLocaleString('es-CO')}`;
+
+  const STATUS_LABELS = {
+    PROPOSED: 'PROPOSED (En curaduría)',
+    APPROVED: 'APPROVED (Lista para despacho)',
+    PREPARING: 'PREPARING (En taller)',
+    SHIPPED: 'SHIPPED (En reparto)',
+    DELIVERED: 'DELIVERED (Entregada)',
+    RATED: 'RATED (Calificada)'
+  };
+
   // PESTAÑA 1: GESTIÓN DE CAJAS (El Admin puede ver los ítems incluso antes de entrega)
   function renderBoxesTab(boxes) {
     return `
       <div>
-        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:16px">
-          <h2 class="display" style="font-size:var(--fs-xl)">Pipeline de Cajas por Ciclo</h2>
-          <p class="small muted">
-            <strong>Privilegio administrativo:</strong> Puedes inspeccionar los ítems y prendas seleccionadas incluso en estado PREPARING o SHIPPED.
-          </p>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:16px;gap:12px;flex-wrap:wrap">
+          <div>
+            <h2 class="display" style="font-size:var(--fs-xl)">Pipeline de Cajas por Ciclo</h2>
+            <p class="small muted">
+              <strong>Privilegio administrativo:</strong> Puedes inspeccionar las prendas en cualquier estado. Las cajas PROPOSED se aprueban en la <a href="#/estilista">cola de curaduría</a>.
+            </p>
+          </div>
+          <button type="button" class="btn btn--gold btn--sm" id="btn-generate-batch">${icon('sparkle', 14)} Generar cajas del mes</button>
         </div>
+        <div id="batch-report"></div>
 
         <div class="stack" style="--stack:20px">
           ${boxes.map(box => {
             const statusColor = {
+              PROPOSED: '#8a5a00',
+              APPROVED: '#5b3fa6',
               PREPARING: 'var(--brand-box)',
               SHIPPED: '#2b55b8',
               DELIVERED: '#2a6e4b',
@@ -219,17 +248,20 @@ TCB.views.admin = (() => {
                   <div style="display:flex;align-items:center;gap:8px">
                     <span class="small muted">Cambiar estado:</span>
                     <select class="input admin-status-select" data-box-id="${box.id}" style="width:auto;padding:6px 12px">
-                      <option value="PREPARING" ${box.status === 'PREPARING' ? 'selected' : ''}>PREPARING (En taller)</option>
-                      <option value="SHIPPED" ${box.status === 'SHIPPED' ? 'selected' : ''}>SHIPPED (En reparto)</option>
-                      <option value="DELIVERED" ${box.status === 'DELIVERED' ? 'selected' : ''}>DELIVERED (Entregada)</option>
-                      <option value="RATED" ${box.status === 'RATED' ? 'selected' : ''}>RATED (Calificada)</option>
+                      ${['PROPOSED', 'APPROVED'].includes(box.status) ? `<option value="${box.status}" selected disabled>${STATUS_LABELS[box.status]}</option>` : ''}
+                      ${['PREPARING', 'SHIPPED', 'DELIVERED', 'RATED'].map(st => `
+                        <option value="${st}" ${box.status === st ? 'selected' : ''}>${STATUS_LABELS[st]}</option>
+                      `).join('')}
                     </select>
                   </div>
                 </div>
 
                 <!-- PRENDAS ASIGNADAS (FOTOGRAFÍAS REALES AUDITADAS POR ADMIN) -->
                 <div>
-                  <p class="small mono muted" style="margin-bottom:10px;text-transform:uppercase">Prendas curadas en esta caja (${(box.items || []).length}):</p>
+                  <p class="small mono muted" style="margin-bottom:10px;text-transform:uppercase">
+                    Prendas curadas en esta caja (${(box.items || []).length})
+                    ${box.targetCostCOP ? ` · costo ${cop(box.totalCostCOP)} / objetivo ${cop(box.targetCostCOP)}${box.withinCap === false ? ' · SUPERA EL TOPE' : ''}` : ''}
+                  </p>
                   <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:14px">
                     ${(box.items || []).map(item => `
                       <div style="background:var(--paper-2);border:var(--hair);border-radius:var(--r-1);padding:10px;display:flex;gap:12px;align-items:center">
@@ -240,6 +272,10 @@ TCB.views.admin = (() => {
                           <span class="badge badge--dark" style="font-size:9px">${item.brandName || item.brandCity || 'Marca'}</span>
                           <h5 style="font-weight:700;font-size:var(--fs-xs);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px">${item.name}</h5>
                           <p class="small muted" style="font-size:11px">${item.fabric?.split(' ')[0] || ''} · $${Number(item.priceCOP || 89000).toLocaleString('es-CO')}</p>
+                          ${(() => {
+                            const rec = (box.recommendations || []).find(x => x.productId === item.id);
+                            return rec ? `<p class="small" style="font-size:11px;white-space:normal;margin-top:2px">${rec.explanation}</p>` : '';
+                          })()}
                         </div>
                       </div>
                     `).join('')}
@@ -308,6 +344,20 @@ TCB.views.admin = (() => {
           </div>
         </div>
 
+        <!-- HU-05: IMPORTACIÓN DE CATÁLOGO POR CSV -->
+        <section style="background:var(--sheet);border:var(--line);padding:18px;margin-bottom:20px;border-radius:var(--r-1)">
+          <h3 style="font-weight:700">Importar catálogo (CSV)</h3>
+          <p class="small muted" style="margin-top:4px">
+            Una fila por variante. Columnas: marca, nombre, categoria, estilo, ocasion, talla, color, precio_mayorista, stock.
+            Varios estilos u ocasiones se separan con |. <a href="/docs/ejemplo_catalogo.csv" download>Descargar ejemplo</a>
+          </p>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">
+            <input type="file" id="csv-file" accept=".csv,text/csv" class="input" style="width:auto;max-width:100%">
+            <button type="button" class="btn btn--gold btn--sm" id="btn-import-csv">Importar</button>
+          </div>
+          <div id="import-report" style="margin-top:12px"></div>
+        </section>
+
         <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:20px">
           ${products.map(p => `
             <div style="background:var(--sheet);border:var(--line);border-radius:var(--r-1);overflow:hidden;display:flex;flex-direction:column">
@@ -327,8 +377,10 @@ TCB.views.admin = (() => {
                 </div>
                 <h4 style="font-weight:700;font-size:var(--fs-base)">${p.name}</h4>
                 <p class="small muted" style="font-size:12px;line-height:1.4">${p.story || ''}</p>
-                <div style="background:var(--paper-2);padding:6px 10px;border-radius:var(--r-1);font-size:11px;margin-top:auto">
-                  <strong>Tejido:</strong> ${p.fabric}
+                <div style="background:var(--paper-2);padding:6px 10px;border-radius:var(--r-1);font-size:11px;margin-top:auto;display:grid;gap:4px">
+                  <span><strong>Tejido:</strong> ${p.fabric}</span>
+                  <span><strong>Mayorista:</strong> ${cop(p.wholesalePriceCOP)}${p.wholesaleEstimated ? ' (estimado)' : ''}</span>
+                  <span><strong>Stock:</strong> ${(p.variants || []).map(v => `<span class="mono" style="${v.stock === 0 ? 'color:var(--danger)' : ''}">${v.size} ${v.stock}</span>`).join(' · ')}</span>
                 </div>
               </div>
             </div>
@@ -545,6 +597,55 @@ TCB.views.admin = (() => {
       }
     });
 
+    function rerender() {
+      const container = document.getElementById('app-view');
+      if (container) {
+        container.innerHTML = render(TCB.state.get());
+        mount(container);
+      }
+    }
+
+    root.querySelector('#btn-import-csv')?.addEventListener('click', async () => {
+      const file = root.querySelector('#csv-file').files[0];
+      const reportEl = root.querySelector('#import-report');
+      if (!file) {
+        reportEl.innerHTML = '<p class="small error">Selecciona un archivo CSV.</p>';
+        return;
+      }
+      try {
+        const res = await TCB.api.admin.importProducts(await file.text());
+        await loadAdminData();
+        rerender();
+        document.querySelector('#import-report').innerHTML = `
+          <p class="small"><strong>${res.imported}</strong> filas importadas · <strong>${res.rejected}</strong> con error · ${res.createdProducts.length} prendas nuevas · ${res.updatedProducts.length} actualizadas</p>
+          ${res.errors.length ? `
+            <table class="returns-history-table" style="margin-top:8px">
+              <thead><tr><th>Fila</th><th>Motivo</th></tr></thead>
+              <tbody>${res.errors.map(e => `<tr><td class="mono">${e.row}</td><td>${e.reason}</td></tr>`).join('')}</tbody>
+            </table>
+          ` : ''}
+        `;
+      } catch (e) {
+        reportEl.innerHTML = `<p class="small error">${e.message}</p>`;
+      }
+    });
+
+    root.querySelector('#btn-generate-batch')?.addEventListener('click', async () => {
+      try {
+        const res = await TCB.api.admin.generateBatch();
+        await loadAdminData();
+        rerender();
+        document.querySelector('#batch-report').innerHTML = `
+          <div class="banner banner--info" style="margin-bottom:16px">
+            <p class="small">Mes ${res.month}: <strong>${res.generatedCount}</strong> cajas generadas (quedan PROPOSED para el estilista) · ${res.skippedCount} suscriptores omitidos
+            ${res.generatedCount ? ` · ${res.withinCapPct} % dentro del costo objetivo · ${res.completePct} % completas` : ''}</p>
+          </div>
+        `;
+      } catch (e) {
+        TCB.state.toast(e.message || 'Error al generar las cajas.', { type: 'danger' });
+      }
+    });
+
     // Pestañas
     root.querySelectorAll('.admin-tab').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -568,6 +669,8 @@ TCB.views.admin = (() => {
           await loadAdminData();
         } catch (e) {
           TCB.state.toast(e.message || 'Error al actualizar estado.', { type: 'danger' });
+          await loadAdminData();
+          rerender();
         }
       });
     });

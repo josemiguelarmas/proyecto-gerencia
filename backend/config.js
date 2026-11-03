@@ -14,8 +14,38 @@ const POLICY = {
   ]
 };
 
+// HU-06: costo objetivo por plan, sustentado en el precio del plan.
+// costo objetivo = precio - comisión pasarela (3,5 %) - logística y empaque - margen mínimo (10 % del precio)
+// La logística (12.000 COP por caja) y el margen son supuestos pendientes de validar con el equipo.
+const PAYMENT_FEE_RATE = 0.035;
+const LOGISTICS_COST_COP = 12000;
+const MIN_MARGIN_RATE = 0.10;
+
+function targetCost(priceCOP) {
+  return Math.round(priceCOP * (1 - PAYMENT_FEE_RATE - MIN_MARGIN_RATE) - LOGISTICS_COST_COP);
+}
+
+const PLANS = {
+  esencial: { name: 'Esencial', priceCOP: 129900, items: 3, slots: ['top', 'bottom', 'capa'] },
+  estilo: { name: 'Estilo', priceCOP: 199900, items: 5, slots: ['top', 'bottom', 'capa', 'top', 'bottom'] }
+};
+Object.values(PLANS).forEach(plan => { plan.targetCostCOP = targetCost(plan.priceCOP); });
+
 module.exports = {
   POLICY,
+  PLANS,
+  PAYMENT_FEE_RATE,
+  LOGISTICS_COST_COP,
+  MIN_MARGIN_RATE,
+  // HU-05: si una prenda no trae precio mayorista se estima como este % del precio de venta (supuesto).
+  WHOLESALE_RATIO_DEFAULT: 0.30,
+  INITIAL_VARIANT_STOCK: 10,
+  SIZES: ['XS', 'S', 'M', 'L', 'XL', 'XXL'],
+  CATEGORIES: ['top', 'bottom', 'capa'],
+  STYLES: ['urbano', 'minimal', 'retro', 'clasico', 'deportivo', 'artesanal'],
+  OCCASIONS: ['clase', 'fiesta', 'entrevista'],
+  // HU-03: meta de tiempo del quiz en segundos.
+  QUIZ_TARGET_SECONDS: 180,
   MIN_AGE: 18,
   PASSWORD_RESET_TTL_MS: 60 * 60 * 1000,
   APP_BASE_URL: process.env.APP_BASE_URL || 'http://localhost:3000',
