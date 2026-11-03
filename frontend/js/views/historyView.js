@@ -98,14 +98,13 @@ TCB.views.history = (() => {
         <!-- GRILLA DE PRENDAS DE ESTE CICLO -->
         <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));gap:20px">
           ${items.map(item => {
-            const itemRating = box.ratings ? box.ratings[item.id] : null;
-            const stars = itemRating ? itemRating.stars : null;
+            const stars = item.userRating ? item.userRating.score : null;
 
             return `
               <div style="background:var(--paper-2);border:var(--hair);padding:16px;border-radius:var(--r-1);display:grid;gap:12px">
                 <div style="display:flex;justify-content:space-between;align-items:baseline">
-                  <span class="badge badge--dark" style="font-size:10px">${item.brand}</span>
-                  <span class="mono" style="font-weight:700;font-size:var(--fs-sm)">Talla ${item.recommendedSize}</span>
+                  <span class="badge badge--dark" style="font-size:10px">${item.brandName}</span>
+                  <span class="mono" style="font-weight:700;font-size:var(--fs-sm)">Talla ${item.fit.size}</span>
                 </div>
 
                 <div style="height:170px;overflow:hidden;border-radius:var(--r-1);background:var(--sheet)">
@@ -114,8 +113,8 @@ TCB.views.history = (() => {
 
                 <div>
                   <h4 style="font-weight:700;font-size:var(--fs-base)">${item.name}</h4>
-                  <p class="small muted">${item.fabric} · Corte ${item.fit}</p>
-                  <p class="mono small" style="margin-top:4px;font-weight:600">$${Number(item.price).toLocaleString('es-CO')}</p>
+                  <p class="small muted">${item.fabric} · Corte ${item.cut} · ${item.fit.levelText}</p>
+                  <p class="mono small" style="margin-top:4px;font-weight:600">$${Number(item.priceCOP).toLocaleString('es-CO')}</p>
                 </div>
 
                 <div style="border-top:var(--hair);padding-top:10px;display:flex;justify-content:space-between;align-items:center">

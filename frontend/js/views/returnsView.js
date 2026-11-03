@@ -14,7 +14,7 @@ TCB.views.returns = (() => {
       return res;
     } catch (e) {
       console.error('Error fetching returns:', e);
-      return { returns: [], returnableItems: [] };
+      return { returns: [], returnableGarments: [] };
     }
   }
 
@@ -37,7 +37,7 @@ TCB.views.returns = (() => {
       `;
     }
 
-    const { returns = [], returnableItems = [] } = cachedData || {};
+    const { returns = [], returnableGarments = [] } = cachedData || {};
 
     return `
       <div class="screen wrap">
@@ -67,11 +67,11 @@ TCB.views.returns = (() => {
         <!-- PRENDAS ELEGIBLES PARA CAMBIO -->
         <section style="margin-bottom:var(--s-8)">
           <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:var(--s-4);flex-wrap:wrap;gap:12px">
-            <h2 class="display" style="font-size:var(--fs-2xl)">Prendas recibidas elegibles para cambio (${returnableItems.length})</h2>
+            <h2 class="display" style="font-size:var(--fs-2xl)">Prendas recibidas elegibles para cambio (${returnableGarments.length})</h2>
             <span class="small muted">Plazo de cambio: 15 días posteriores a la entrega</span>
           </div>
 
-          ${returnableItems.length === 0 ? `
+          ${returnableGarments.length === 0 ? `
             <div style="background:var(--sheet);border:var(--hair);padding:32px;text-align:center;border-radius:var(--r-1)">
               <p style="font-weight:600">No tienes prendas pendientes de cambio de talla.</p>
               <p class="small muted" style="margin-top:4px">
@@ -81,19 +81,19 @@ TCB.views.returns = (() => {
             </div>
           ` : `
             <div class="returnable-list">
-              ${returnableItems.map(item => `
+              ${returnableGarments.map(item => `
                 <div class="returnable-item" data-item-id="${item.id}">
                   <div style="width:68px;height:84px;border-radius:var(--r-1);overflow:hidden;flex:none;background:var(--paper-2)">
                     <img src="${item.imageUrl || 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=800&q=80'}" alt="${item.name}" style="width:100%;height:100%;object-fit:cover" loading="lazy" />
                   </div>
                   <div>
                     <div style="display:flex;gap:8px;align-items:center">
-                      <span class="badge badge--dark" style="font-size:10px">${item.brand}</span>
+                      <span class="badge badge--dark" style="font-size:10px">${item.brandName}</span>
                       <span class="small mono muted">Ciclo #${item.cycle}</span>
                     </div>
                     <h3 style="font-weight:700;font-size:var(--fs-base);margin-top:4px">${item.name}</h3>
                     <p class="small muted">
-                      Talla recibida: <strong>${item.size}</strong> · Tejido: ${item.fabric} · Corte: ${item.fit}
+                      Talla recibida: <strong>${item.fit.size}</strong> · Tejido: ${item.fabric} · Corte: ${item.cut}
                     </p>
                   </div>
                   <div>
@@ -190,9 +190,9 @@ TCB.views.returns = (() => {
               <img src="${item.imageUrl || 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=800&q=80'}" alt="${item.name}" style="width:100%;height:100%;object-fit:cover" />
             </div>
             <div>
-              <p class="badge badge--dark" style="font-size:10px">${item.brand}</p>
+              <p class="badge badge--dark" style="font-size:10px">${item.brandName}</p>
               <h4 style="font-weight:700;font-size:var(--fs-base)">${item.name}</h4>
-              <p class="small muted">Talla recibida: <strong>${item.size}</strong></p>
+              <p class="small muted">Talla recibida: <strong>${item.fit.size}</strong></p>
             </div>
           </div>
 
@@ -215,11 +215,11 @@ TCB.views.returns = (() => {
             <div class="field">
               <label for="return-size"><strong>Talla de reemplazo solicitada</strong></label>
               <select class="input" id="return-size" name="requestedSize" required>
-                <option value="XS" ${item.size === 'S' ? 'selected' : ''}>XS (Extra Small)</option>
-                <option value="S" ${item.size === 'M' ? 'selected' : ''}>S (Small)</option>
-                <option value="M" ${item.size === 'L' ? 'selected' : ''}>M (Medium)</option>
-                <option value="L" ${item.size === 'M' ? 'selected' : ''}>L (Large)</option>
-                <option value="XL" ${item.size === 'L' ? 'selected' : ''}>XL (Extra Large)</option>
+                <option value="XS" ${item.fit.size === 'S' ? 'selected' : ''}>XS (Extra Small)</option>
+                <option value="S" ${item.fit.size === 'M' ? 'selected' : ''}>S (Small)</option>
+                <option value="M" ${item.fit.size === 'L' ? 'selected' : ''}>M (Medium)</option>
+                <option value="L" ${item.fit.size === 'M' ? 'selected' : ''}>L (Large)</option>
+                <option value="XL" ${item.fit.size === 'L' ? 'selected' : ''}>XL (Extra Large)</option>
               </select>
             </div>
 
@@ -266,7 +266,7 @@ TCB.views.returns = (() => {
           try {
             const result = await TCB.api.returns.create({
               boxId: item.boxId,
-              productId: item.productId,
+              productId: item.id,
               reason,
               requestedSize,
               notes,
@@ -316,7 +316,7 @@ TCB.views.returns = (() => {
     const hash = window.location.hash;
     if (hash.includes('?item=') && cachedData) {
       const itemId = hash.split('?item=')[1];
-      const match = (cachedData.returnableItems || []).find(i => i.id === itemId);
+      const match = (cachedData.returnableGarments || []).find(i => i.id === itemId);
       if (match) {
         openReturnModal(match, async () => {
           await loadReturnsData();

@@ -454,7 +454,7 @@ async function handleApiRequest(req, res, pathname) {
             const p = db.getProductById(id);
             if (!p) return null;
             const userRating = ratings.find(r => r.productId === p.id) || null;
-            return { ...p, fit: calculateFit(profile, p), userRating };
+            return { ...p, cut: p.fit, fit: calculateFit(profile, p), userRating };
           }).filter(Boolean);
 
           return {
@@ -489,6 +489,7 @@ async function handleApiRequest(req, res, pathname) {
             const fit = calculateFit(profile, prod);
             returnableGarments.push({
               ...prod,
+              cut: prod.fit,
               boxId: box.id,
               cycle: box.cycle,
               deliveredAt: box.deliveredAt,
