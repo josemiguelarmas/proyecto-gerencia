@@ -11,7 +11,9 @@ TCB.app = (() => {
     '#/devoluciones': TCB.views.returns,
     '#/historial': TCB.views.history,
     '#/perfil': TCB.views.profile,
-    '#/admin': TCB.views.admin
+    '#/admin': TCB.views.admin,
+    '#/restablecer': TCB.views.resetPassword,
+    '#/verificar': TCB.views.verifyEmail
   };
 
   function renderAppbar(store) {
