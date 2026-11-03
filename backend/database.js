@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const DB_FILE = path.join(__dirname, 'data', 'db.json');
+const DB_FILE = process.env.TCB_DB_FILE || path.join(__dirname, 'data', 'db.json');
 const CATALOG_FILE = path.join(__dirname, 'data', 'catalog.json');
 
 function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
@@ -18,16 +18,21 @@ function verifyPassword(password, stored) {
   return crypto.timingSafeEqual(keyBuffer, derivedKey);
 }
 
+// Colecciones de la base. Las de Sprint 2 se crean vacías en bases existentes.
+const COLLECTIONS = ['users', 'profiles', 'boxes', 'ratings', 'returns', 'consents', 'authTokens', 'subscriptions', 'cancellations'];
+
+function emptyData() {
+  return Object.fromEntries(COLLECTIONS.map(c => [c, []]));
+}
+
+function sha256(value) {
+  return crypto.createHash('sha256').update(String(value)).digest('hex');
+}
+
 class Database {
   constructor() {
     this.catalog = [];
-    this.data = {
-      users: [],
-      profiles: [],
-      boxes: [],
-      ratings: [],
-      returns: []
-    };
+    this.data = emptyData();
     this.init();
   }
 
@@ -45,7 +50,7 @@ class Database {
     if (fs.existsSync(DB_FILE)) {
       try {
         const raw = fs.readFileSync(DB_FILE, 'utf8');
-        this.data = Object.assign({ users: [], profiles: [], boxes: [], ratings: [], returns: [] }, JSON.parse(raw));
+        this.data = Object.assign(emptyData(), JSON.parse(raw));
       } catch (e) {
         console.warn('Re-initializing database due to read error:', e.message);
         this.seedInitial();
@@ -106,6 +111,7 @@ class Database {
     const adminUserId = 'usr_admin_01';
 
     this.data = {
+      ...emptyData(),
       users: [
         {
           id: demoUserId,
@@ -288,7 +294,7 @@ class Database {
     return this.data.users.find(u => u.id === id) || null;
   }
 
-  createUser(name, email, password, role = 'CLIENT') {
+  createUser(name, email, password, role = 'CLIENT', extra = {}) {
     const id = `usr_${crypto.randomBytes(6).toString('hex')}`;
     const user = {
       id,
@@ -296,11 +302,121 @@ class Database {
       email: email.trim().toLowerCase(),
       passwordHash: hashPassword(password),
       role: role || 'CLIENT',
+      ...extra,
       createdAt: new Date().toISOString()
     };
     this.data.users.push(user);
     this.save();
     return user;
+  }
+
+  updateUser(userId, updates) {
+    const user = this.findUserById(userId);
+    if (!user) return null;
+    Object.assign(user, updates);
+    this.save();
+    return user;
+  }
+
+  setPassword(userId, password) {
+    return this.updateUser(userId, { passwordHash: hashPassword(password) });
+  }
+
+  // HU-02: registro de auditoría del consentimiento
+  addConsent(userId, { accepted, policyVersion }) {
+    const consent = {
+      id: `cns_${crypto.randomBytes(6).toString('hex')}`,
+      userId,
+      accepted: accepted === true,
+      policyVersion,
+      acceptedAt: new Date().toISOString()
+    };
+    this.data.consents.push(consent);
+    this.save();
+    return consent;
+  }
+
+  getConsentsByUser(userId) {
+    return this.data.consents.filter(c => c.userId === userId);
+  }
+
+  // HU-01: tokens de un solo uso (recuperación y verificación). Solo se guarda el hash.
+  createAuthToken(userId, type, ttlMs) {
+    const token = crypto.randomBytes(32).toString('hex');
+    this.data.authTokens.push({
+      id: `tok_${crypto.randomBytes(6).toString('hex')}`,
+      userId,
+      type,
+      tokenHash: sha256(token),
+      expiresAt: ttlMs ? new Date(Date.now() + ttlMs).toISOString() : null,
+      usedAt: null,
+      createdAt: new Date().toISOString()
+    });
+    this.save();
+    return token;
+  }
+
+  // Devuelve el registro si el token es válido y lo marca como usado.
+  consumeAuthToken(token, type) {
+    if (!token) return null;
+    const hash = sha256(token);
+    const record = this.data.authTokens.find(t => t.tokenHash === hash && t.type === type);
+    if (!record || record.usedAt) return null;
+    if (record.expiresAt && new Date(record.expiresAt) < new Date()) return null;
+    record.usedAt = new Date().toISOString();
+    this.save();
+    return record;
+  }
+
+  // HU-13 (y base para HU-08/HU-12): suscripción mínima y cancelaciones
+  getSubscription(userId) {
+    let sub = this.data.subscriptions.find(s => s.userId === userId);
+    if (!sub) {
+      // TODO HU-08: la suscripción nace con el pago. Mientras tanto, un perfil completo cuenta como ACTIVE.
+      const profile = this.getProfile(userId);
+      sub = {
+        userId,
+        plan: (profile && profile.plan) || 'esencial',
+        status: profile && profile.done ? 'ACTIVE' : 'NONE',
+        createdAt: new Date().toISOString()
+      };
+    }
+    return sub;
+  }
+
+  saveSubscription(userId, updates) {
+    let sub = this.data.subscriptions.find(s => s.userId === userId);
+    if (!sub) {
+      sub = { ...this.getSubscription(userId) };
+      this.data.subscriptions.push(sub);
+    }
+    Object.assign(sub, updates, { updatedAt: new Date().toISOString() });
+    this.save();
+    return sub;
+  }
+
+  addCancellation(userId, { plan, reason, comment }) {
+    const cancellation = {
+      id: `cnl_${crypto.randomBytes(6).toString('hex')}`,
+      userId,
+      plan,
+      reason: reason || null,
+      comment: comment || '',
+      createdAt: new Date().toISOString()
+    };
+    this.data.cancellations.push(cancellation);
+    this.save();
+    return cancellation;
+  }
+
+  getCancellationReasonCounts(reasonKeys) {
+    const counts = Object.fromEntries(reasonKeys.map(k => [k, 0]));
+    let unanswered = 0;
+    this.data.cancellations.forEach(c => {
+      if (c.reason && counts[c.reason] !== undefined) counts[c.reason]++;
+      else unanswered++;
+    });
+    return { total: this.data.cancellations.length, counts, unanswered };
   }
 
   getAllUsers() {
@@ -312,6 +428,7 @@ class Database {
         name: u.name,
         email: u.email,
         role: u.role || 'CLIENT',
+        emailVerified: u.emailVerified,
         createdAt: u.createdAt,
         profile,
         boxesCount: boxes.length,
@@ -425,6 +542,8 @@ class Database {
     if (rating) {
       Object.assign(rating, {
         score: ratingData.score !== undefined ? ratingData.score : rating.score,
+        fitScore: ratingData.fitScore !== undefined ? ratingData.fitScore : (rating.fitScore ?? null),
+        styleScore: ratingData.styleScore !== undefined ? ratingData.styleScore : (rating.styleScore ?? null),
         liked: ratingData.liked !== undefined ? ratingData.liked : rating.liked,
         styleFeedback: ratingData.styleFeedback !== undefined ? ratingData.styleFeedback : (ratingData.feedback || rating.styleFeedback),
         feedback: ratingData.feedback || rating.feedback,
@@ -439,6 +558,8 @@ class Database {
         boxId,
         productId,
         score: ratingData.score || 4,
+        fitScore: ratingData.fitScore ?? null,
+        styleScore: ratingData.styleScore ?? null,
         liked: ratingData.liked !== false,
         styleFeedback: ratingData.styleFeedback || ratingData.feedback || '',
         feedback: ratingData.feedback || '',
@@ -555,6 +676,7 @@ const db = new Database();
 
 module.exports = {
   db,
+  sha256,
   verifyPassword,
   hashPassword
 };

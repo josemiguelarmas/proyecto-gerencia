@@ -64,14 +64,15 @@ TCB.api = (() => {
         setToken(data.token);
         return data;
       },
-      register: async (name, email, password) => {
-        const data = await request('/api/auth/register', {
-          method: 'POST',
-          body: { name, email, password }
-        });
-        setToken(data.token);
-        return data;
+      register: async data => {
+        const res = await request('/api/auth/register', { method: 'POST', body: data });
+        setToken(res.token);
+        return res;
       },
+      forgot: email => request('/api/auth/forgot', { method: 'POST', body: { email } }),
+      reset: (token, password) => request('/api/auth/reset', { method: 'POST', body: { token, password } }),
+      verifyEmail: token => request('/api/auth/verify-email', { method: 'POST', body: { token } }),
+      resendVerification: () => request('/api/auth/resend-verification', { method: 'POST' }),
       me: () => request('/api/auth/me'),
       logout: () => {
         setToken(null);
@@ -79,6 +80,12 @@ TCB.api = (() => {
     },
     products: {
       list: () => request('/api/products')
+    },
+    policy: () => request('/api/policy'),
+    config: () => request('/api/config'),
+    subscription: {
+      get: () => request('/api/subscription'),
+      cancel: data => request('/api/subscription/cancel', { method: 'POST', body: data })
     },
     profile: {
       get: () => request('/api/profile'),
@@ -106,7 +113,10 @@ TCB.api = (() => {
       updateBoxStatus: (boxId, status) => request(`/api/admin/boxes/${boxId}/status`, { method: 'POST', body: { status } }),
       returns: () => request('/api/admin/returns'),
       updateReturn: (returnId, data) => request(`/api/admin/returns/${returnId}`, { method: 'PUT', body: data }),
-      feedback: () => request('/api/admin/feedback')
+      feedback: () => request('/api/admin/feedback'),
+      outbox: () => request('/api/admin/outbox'),
+      runReviewReminders: () => request('/api/admin/jobs/review-reminders', { method: 'POST' }),
+      cancellationReasons: () => request('/api/admin/cancellation-reasons')
     }
   };
 })();

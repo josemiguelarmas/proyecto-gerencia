@@ -3,6 +3,7 @@ const url = require('url');
 const fs = require('fs');
 const path = require('path');
 const { handleApiRequest } = require('./routes');
+const { startJobs, stopJobs } = require('./jobs');
 
 const FRONTEND_DIR = path.join(__dirname, '..', 'frontend');
 const PORT = process.env.PORT || 3000;
@@ -70,11 +71,14 @@ const server = http.createServer((req, res) => {
 function startServer(port = PORT) {
   return new Promise((resolve) => {
     server.listen(port, () => {
+      startJobs();
       console.log(`[The Clothes Box] Backend Full-Stack corriendo en http://localhost:${port}`);
       resolve(server);
     });
   });
 }
+
+server.on('close', stopJobs);
 
 if (require.main === module) {
   startServer();
