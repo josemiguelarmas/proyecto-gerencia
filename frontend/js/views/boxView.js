@@ -43,7 +43,7 @@ TCB.views.box = (() => {
       `;
     }
 
-    const isSealed = (box.status === 'PREPARING' || box.status === 'SHIPPED');
+    const isSealed = ['PROPOSED', 'REJECTED', 'APPROVED', 'PREPARING', 'SHIPPED'].includes(box.status);
     const isDelivered = (box.status === 'DELIVERED' || box.status === 'RATED');
     const isUnboxed = box.unboxed === true;
 
@@ -99,8 +99,20 @@ TCB.views.box = (() => {
 
   // ESTADO 1: CAJA EN PREPARACIÓN O EN CAMINO (SELLADA - REGLA DE SORPRESA ABSOLUTA)
   function renderSealedState(box) {
+    const isCurating = box.status === 'PROPOSED' || box.status === 'REJECTED';
+    const isApproved = box.status === 'APPROVED';
     const isPrep = box.status === 'PREPARING';
     const isShip = box.status === 'SHIPPED';
+    const title = isCurating ? 'Tu estilista está revisando tu selección'
+      : isApproved ? 'Tu caja está lista para despacho'
+      : isPrep ? 'Tu caja se está preparando en Cali' : 'Tu caja va en camino a tu puerta';
+    const message = isCurating
+      ? 'El motor armó una propuesta con prendas en stock en tu talla y una estilista la está revisando antes de empacarla.'
+      : isApproved
+      ? 'Tu estilista aprobó la selección. En breve la empacamos y sellamos para enviarla.'
+      : isPrep
+      ? 'Nuestro equipo está empaquetando prendas de marcas locales independientes (Ceiba Estudio, Mono Textil, Taller Norte) calibradas a tus medidas. Las prendas son sorpresa hasta que recibas la caja.'
+      : 'El transportador ya tiene tu caja sellada. La sorpresa se mantendrá intacta hasta que abras el paquete en tu domicilio.';
 
     return `
       <section class="sealed-box-hero" aria-label="Caja Sellada">
@@ -113,22 +125,19 @@ TCB.views.box = (() => {
         </div>
 
         <h2 class="display" style="font-size:clamp(var(--fs-2xl), 4vw, var(--fs-4xl))">
-          ${isPrep ? 'Tu caja se está preparando en Cali' : 'Tu caja va en camino a tu puerta'}
+          ${title}
         </h2>
         <p class="muted" style="max-width:540px;margin:var(--s-3) auto 0;font-size:var(--fs-base)">
-          ${isPrep 
-            ? 'Nuestro equipo está empaquetando prendas de marcas locales independientes (Ceiba Estudio, Mono Textil, Taller Norte) calibradas a tus medidas. Las prendas son sorpresa hasta que recibas la caja.'
-            : 'El transportador ya tiene tu caja sellada. La sorpresa se mantendrá intacta hasta que abras el paquete en tu domicilio.'
-          }
+          ${message}
         </p>
 
         <!-- LÍNEA DE SEGUIMIENTO REAL -->
         <div class="tracking-bar" style="margin-top:var(--s-6)">
-          <div class="tracking-node is-done">
+          <div class="tracking-node ${isCurating || isApproved ? 'is-current' : 'is-done'}">
             <p class="mono small">01</p>
-            <p>Curaduría y patronaje</p>
+            <p>${isApproved ? 'Lista para despacho' : 'Curaduría y patronaje'}</p>
           </div>
-          <div class="tracking-node ${isPrep ? 'is-current' : 'is-done'}">
+          <div class="tracking-node ${isPrep ? 'is-current' : isShip ? 'is-done' : ''}">
             <p class="mono small">02</p>
             <p>Empaque y sellado</p>
           </div>
@@ -142,7 +151,7 @@ TCB.views.box = (() => {
         <div style="display:inline-flex;gap:24px;background:var(--paper-2);border:var(--hair);padding:14px 24px;border-radius:var(--r-1);margin-top:var(--s-5);text-align:left;flex-wrap:wrap">
           <div>
             <p class="small muted">Guía de rastreo</p>
-            <p class="mono" style="font-weight:700">${box.trackingNumber || 'TCB-CALI-7829-X'}</p>
+            <p class="mono" style="font-weight:700">${box.trackingNumber || (isShip ? 'TCB-CALI-7829-X' : 'Se asigna al despachar')}</p>
           </div>
           <div>
             <p class="small muted">Prendas incluidas</p>
@@ -299,6 +308,12 @@ TCB.views.box = (() => {
           <p class="small muted" style="line-height:1.5">
             ${item.story || 'Confección nacional con acabados de alta resistencia.'}
           </p>
+
+          ${item.recommendation ? `
+            <p class="small" style="border-left:3px solid var(--brand-box);padding-left:10px;line-height:1.45">
+              <strong>Por qué te la elegimos:</strong> ${item.recommendation.explanation}
+            </p>
+          ` : ''}
 
           <div style="background:var(--paper-2);padding:10px 14px;border:var(--hair);border-radius:var(--r-1);font-size:var(--fs-xs);display:grid;gap:4px">
             <div><strong>Tejido:</strong> ${item.fabric}</div>
