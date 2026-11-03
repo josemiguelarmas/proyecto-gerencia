@@ -38,6 +38,14 @@ TCB.views.profile = (() => {
           </p>
         </div>
 
+        ${user.emailVerified === false ? `
+          <div class="banner banner--warn" style="margin-bottom:var(--s-6);display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            ${icon('alert', 20)}
+            <p style="flex:1;min-width:200px">Tu correo <strong>${user.email}</strong> aún no está verificado. Revisa el enlace que te enviamos.</p>
+            <button type="button" class="btn btn--sm btn--ghost" id="btn-resend-verification">Reenviar enlace</button>
+          </div>
+        ` : ''}
+
         <form id="profile-form" class="stack" style="--stack:32px" novalidate>
           <!-- TARJETA 1: DATOS BÁSICOS -->
           <section style="background:var(--sheet);border:var(--line);padding:28px">
@@ -176,14 +184,103 @@ TCB.views.profile = (() => {
             </button>
           </div>
         </form>
+
+        <!-- HU-13: MI SUSCRIPCIÓN -->
+        <section id="subscription-section" style="background:var(--sheet);border:var(--line);padding:28px;margin-top:32px">
+          <h2 class="display" style="font-size:var(--fs-xl);margin-bottom:8px">Mi suscripción</h2>
+          <div id="subscription-body"><p class="small muted">Cargando…</p></div>
+        </section>
       </div>
     `;
+  }
+
+  const PLAN_NAMES = { esencial: 'Esencial · 3 prendas', estilo: 'Estilo · 5 prendas' };
+  const STATUS_NAMES = { ACTIVE: 'Activa', CANCELLED: 'Cancelada', NONE: 'Sin suscripción' };
+
+  async function renderSubscription(root) {
+    const bodyEl = root.querySelector('#subscription-body');
+    if (!bodyEl) return;
+    try {
+      const { subscription: sub } = await TCB.api.subscription.get();
+      bodyEl.innerHTML = `
+        <p class="small">Plan: <strong>${PLAN_NAMES[sub.plan] || sub.plan}</strong> · Estado: <strong>${STATUS_NAMES[sub.status] || sub.status}</strong></p>
+        ${sub.status === 'CANCELLED' ? `
+          <p class="small muted" style="margin-top:6px">Cancelada el ${new Date(sub.cancelledAt).toLocaleDateString('es-CO')}. No se harán más cobros ni despachos.</p>
+        ` : sub.status === 'ACTIVE' ? `
+          <button type="button" class="btn btn--quiet btn--sm" id="btn-cancel-subscription" style="margin-top:12px;color:var(--danger)">Cancelar suscripción</button>
+        ` : `<p class="small muted" style="margin-top:6px">Completa el quiz de estilo para activar tu plan.</p>`}
+      `;
+      bodyEl.querySelector('#btn-cancel-subscription')?.addEventListener('click', () => openCancelModal(() => renderSubscription(root)));
+    } catch (e) {
+      bodyEl.innerHTML = `<p class="small error">No pudimos cargar tu suscripción.</p>`;
+    }
+  }
+
+  // La encuesta de salida es opcional: se puede cancelar sin responderla.
+  async function openCancelModal(onDone) {
+    let reasons = {};
+    try {
+      reasons = (await TCB.api.config()).cancellationReasons;
+    } catch (e) { /* sin motivos se puede cancelar igual */ }
+
+    TCB.state.modal({
+      eyebrow: 'Antes de irte',
+      title: '¿Por qué cancelas?',
+      body: `
+        <form id="cancel-form" class="stack" style="--stack:14px" novalidate>
+          <p class="small muted">Tu respuesta es opcional y nos ayuda a mejorar. Puedes cancelar sin responder.</p>
+          <div class="stack" style="--stack:8px" role="radiogroup" aria-label="Motivo de cancelación">
+            ${Object.entries(reasons).map(([key, label]) => `
+              <label style="display:flex;gap:10px;align-items:center;font-size:var(--fs-sm);cursor:pointer">
+                <input type="radio" name="reason" value="${key}"> ${label}
+              </label>
+            `).join('')}
+          </div>
+          <div class="field">
+            <label for="cancel-comment">Comentario (opcional)</label>
+            <textarea class="input" id="cancel-comment" name="comment" rows="3" maxlength="500" placeholder="Cuéntanos qué podríamos mejorar"></textarea>
+          </div>
+          <p class="error small" id="cancel-error" role="alert"></p>
+          <button type="submit" class="btn btn--block" style="background:var(--danger);color:#fff">Confirmar cancelación</button>
+          <button type="button" class="btn btn--block btn--ghost" data-close>Seguir con mi suscripción</button>
+        </form>
+      `,
+      onMount(modalEl, close) {
+        const form = modalEl.querySelector('#cancel-form');
+        form.addEventListener('submit', async e => {
+          e.preventDefault();
+          const checked = form.querySelector('input[name="reason"]:checked');
+          try {
+            const res = await TCB.api.subscription.cancel({
+              reason: checked ? checked.value : null,
+              comment: form.elements.comment.value.trim()
+            });
+            close();
+            TCB.state.toast(res.message);
+            onDone();
+          } catch (err) {
+            modalEl.querySelector('#cancel-error').textContent = err.data?.error || err.message;
+          }
+        });
+      }
+    });
   }
 
   function mount(root) {
     root.querySelector('[data-login-trigger]')?.addEventListener('click', () => {
       TCB.views.auth.openLoginModal(() => window.location.reload());
     });
+
+    root.querySelector('#btn-resend-verification')?.addEventListener('click', async () => {
+      try {
+        const res = await TCB.api.auth.resendVerification();
+        TCB.state.toast(res.message);
+      } catch (err) {
+        TCB.state.toast(err.message);
+      }
+    });
+
+    renderSubscription(root);
 
     const form = root.querySelector('#profile-form');
     if (form) {
