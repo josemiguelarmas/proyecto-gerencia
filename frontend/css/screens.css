@@ -1,0 +1,278 @@
+/* Screens — The Clothes Box Full-Stack v2 */
+
+.screen {
+  padding-block: var(--s-7) var(--s-9);
+}
+
+.screen-head {
+  display: grid;
+  gap: var(--s-2);
+  margin-bottom: var(--s-6);
+  max-width: 48rem;
+}
+.screen-title {
+  font-size: var(--fs-3xl);
+  font-weight: 500;
+}
+
+/* ---------- ONBOARDING ---------- */
+.wizard-progress {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: var(--s-6);
+}
+.wizard-progress i {
+  height: 4px;
+  background: var(--rule);
+  transition: background var(--t-med);
+}
+.wizard-progress i.is-done { background: var(--ink); }
+
+.style-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.style-choice {
+  background: var(--sheet);
+  border: 1px solid var(--rule-strong);
+  padding: 16px;
+  display: grid;
+  gap: 8px;
+  cursor: pointer;
+  position: relative;
+  transition: border-color var(--t-fast), transform var(--t-fast);
+}
+.style-choice:hover { border-color: var(--ink); }
+.style-choice.is-selected {
+  border-color: var(--ink);
+  background: var(--paper-2);
+  box-shadow: inset 0 0 0 2px var(--ink);
+}
+.style-swatches {
+  display: flex;
+  height: 8px;
+  gap: 2px;
+  margin-top: 4px;
+}
+.style-swatches i { flex: 1; border-radius: 1px; }
+
+/* ---------- CAJA ACTIVA (SEALED / MYSTERY) ---------- */
+.sealed-box-hero {
+  background: var(--sheet);
+  border: 2px solid var(--ink);
+  padding: clamp(32px, 5vw, 64px);
+  text-align: center;
+  position: relative;
+  box-shadow: var(--lift);
+  margin-bottom: var(--s-7);
+}
+
+.box-illustration-wrap {
+  width: 160px;
+  height: 160px;
+  margin: 0 auto var(--s-5);
+  display: grid;
+  place-items: center;
+  background: var(--paper-2);
+  border: 2px dashed var(--brand-box);
+  border-radius: 50%;
+}
+.box-illustration-wrap svg { width: 90px; height: 90px; color: var(--brand-box); }
+
+.sealed-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 18px;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: var(--s-3);
+}
+
+.tracking-bar {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-block: var(--s-6);
+  max-width: 600px;
+  margin-inline: auto;
+}
+.tracking-node {
+  border-top: 3px solid var(--rule);
+  padding-top: 8px;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  font-weight: 500;
+  text-align: left;
+}
+.tracking-node.is-current {
+  border-top-color: var(--brand-box);
+  color: var(--ink);
+  font-weight: 700;
+}
+.tracking-node.is-done {
+  border-top-color: var(--ink);
+  color: var(--ink);
+}
+
+/* Simulador de Envío (Para demostración) */
+.demo-controller {
+  background: var(--paper-2);
+  border: 1px dashed var(--rule-strong);
+  padding: 18px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: var(--s-6);
+}
+
+/* ---------- CAJA ENTREGADA / REVELADA ---------- */
+.unboxing-celebration {
+  text-align: center;
+  padding: 32px 16px;
+  background: var(--sheet);
+  border: 2px solid var(--ink);
+  margin-bottom: var(--s-6);
+}
+.unboxing-celebration h2 {
+  font-size: var(--fs-2xl);
+  margin-bottom: 8px;
+}
+
+.items-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+.item-card {
+  background: var(--sheet);
+  border: var(--line);
+  padding: 20px;
+  display: grid;
+  gap: 16px;
+}
+.item-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.item-size-badge {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: var(--fs-lg);
+  padding: 4px 10px;
+  background: var(--paper-2);
+  border: 1px solid var(--ink);
+}
+
+/* Sección de Calificación */
+.feedback-box {
+  background: var(--sheet);
+  border: var(--line);
+  padding: 32px;
+  margin-top: var(--s-7);
+}
+
+/* ---------- DEVOLUCIONES POR TALLA (MODO DEDICADO) ---------- */
+.returns-rule-card {
+  background: var(--paper-2);
+  border-left: 4px solid var(--brand-box);
+  padding: 20px 24px;
+  margin-bottom: var(--s-6);
+}
+.returns-rule-card h3 {
+  font-size: var(--fs-md);
+  margin-bottom: 4px;
+  color: var(--ink);
+}
+
+.returnable-list {
+  display: grid;
+  gap: 16px;
+  margin-bottom: var(--s-7);
+}
+.returnable-item {
+  background: var(--sheet);
+  border: var(--hair);
+  padding: 18px 24px;
+  display: grid;
+  grid-template-columns: 80px 1fr auto;
+  gap: 20px;
+  align-items: center;
+}
+.returnable-item:hover { border-color: var(--ink); }
+
+.returns-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--sheet);
+  border: var(--hair);
+}
+.returns-history-table th, .returns-history-table td {
+  padding: 14px 18px;
+  border-bottom: var(--hair);
+  text-align: left;
+  font-size: var(--fs-sm);
+}
+.returns-history-table th {
+  background: var(--paper-2);
+  font-weight: 700;
+}
+
+/* ---------- HISTORIAL DE CAJAS ---------- */
+.history-cycle-card {
+  background: var(--sheet);
+  border: var(--line);
+  padding: 28px;
+  margin-bottom: var(--s-6);
+}
+.history-cycle-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  border-bottom: 1px dashed var(--rule);
+  padding-bottom: 14px;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 860px) {
+  .items-grid { grid-template-columns: 1fr; }
+  .style-grid { grid-template-columns: 1fr 1fr; }
+  .returnable-item { grid-template-columns: 60px 1fr; }
+  .returnable-item button { grid-column: 1 / -1; }
+}
+
+/* ---------- ADMIN DASHBOARD STYLES ---------- */
+.admin-tab {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  padding: 10px 18px;
+  border-radius: var(--r-1) var(--r-1) 0 0;
+  color: var(--muted);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  transition: all var(--t-fast);
+}
+.admin-tab:hover {
+  color: var(--ink);
+  background: var(--paper-2);
+}
+.admin-tab.is-active {
+  color: var(--ink);
+  border-bottom-color: var(--brand-box);
+  background: var(--paper-2);
+  font-weight: 700;
+}
+
+.garment-photo-container:hover .garment-img {
+  transform: scale(1.04);
+}
+

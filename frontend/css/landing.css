@@ -1,0 +1,300 @@
+/* Landing Page — Apple-inspired Storytelling Experience */
+
+.landing-hero {
+  padding-block: clamp(48px, 8vw, 100px);
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.landing-hero-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  background: var(--paper-2);
+  border: 1px solid var(--rule-strong);
+  border-radius: 999px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: var(--s-5);
+}
+
+.landing-title {
+  font-size: var(--fs-4xl);
+  font-weight: 450;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  max-width: 18ch;
+  margin-inline: auto;
+  margin-bottom: var(--s-4);
+}
+.landing-title em {
+  font-style: italic;
+  color: var(--brand-box);
+}
+
+.landing-sub {
+  font-size: clamp(1.1rem, 1rem + 0.8vw, 1.4rem);
+  color: var(--ink-2);
+  max-width: 48ch;
+  margin-inline: auto;
+  line-height: 1.45;
+  margin-bottom: var(--s-6);
+}
+
+.landing-cta-row {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: var(--s-8);
+}
+
+/* La Caja Secreta 3D / Táctil en Hero */
+.hero-box-stage {
+  max-width: 680px;
+  margin-inline: auto;
+  position: relative;
+  perspective: 1000px;
+}
+
+.mystery-box-card {
+  background: linear-gradient(145deg, #f0ebd9 0%, #ded3be 100%);
+  border: 2px solid var(--ink);
+  box-shadow: 0 32px 64px -16px rgba(22, 21, 24, 0.25);
+  padding: 32px;
+  position: relative;
+  transform: rotateX(4deg) rotateY(-2deg);
+  transition: transform 0.4s var(--ease-out), box-shadow 0.4s var(--ease-out);
+}
+.mystery-box-card:hover {
+  transform: rotateX(0deg) rotateY(0deg) translateY(-6px);
+  box-shadow: 0 40px 80px -20px rgba(22, 21, 24, 0.35);
+}
+
+.box-seal-tape {
+  position: absolute;
+  top: 50%;
+  left: -20px;
+  right: -20px;
+  transform: translateY(-50%);
+  height: 48px;
+  background: repeating-linear-gradient(45deg, #161518, #161518 16px, #c26928 16px, #c26928 32px);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  z-index: 2;
+}
+
+.mystery-box-inner {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  filter: blur(8px) grayscale(20%);
+  opacity: 0.65;
+  transition: filter 0.3s, opacity 0.3s;
+}
+.mystery-box-card:hover .mystery-box-inner {
+  filter: blur(4px) grayscale(0%);
+  opacity: 0.85;
+}
+
+.mystery-badge {
+  position: absolute;
+  bottom: -20px;
+  right: 24px;
+  background: var(--ink);
+  color: var(--paper);
+  padding: 12px 20px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: var(--lift);
+  z-index: 3;
+}
+.mystery-badge svg { color: var(--brand-gold); }
+
+/* Secciones de Storytelling */
+.story-chapter {
+  padding-block: clamp(64px, 9vw, 120px);
+  border-top: var(--hair);
+}
+
+.chapter-lead {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  gap: var(--s-7);
+  align-items: baseline;
+  margin-bottom: var(--s-7);
+}
+.chapter-num {
+  font-family: var(--font-mono);
+  font-size: var(--fs-lg);
+  color: var(--brand-box);
+  font-weight: 600;
+  display: block;
+  margin-bottom: 8px;
+}
+.chapter-h2 {
+  font-size: var(--fs-3xl);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+.chapter-desc {
+  font-size: var(--fs-lg);
+  color: var(--ink-2);
+  line-height: 1.6;
+}
+
+/* Vitrina de Prendas Reales */
+.garment-showcase {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+}
+.showcase-card {
+  background: var(--sheet);
+  border: var(--hair);
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+  transition: transform var(--t-fast), border-color var(--t-fast);
+}
+.showcase-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--ink);
+}
+.showcase-brand {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.showcase-name {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  line-height: 1.3;
+}
+.showcase-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  border-top: var(--hair);
+  padding-top: 8px;
+}
+
+/* Grilla de Experiencia: Cuéntanos quién eres */
+.body-engine-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-6);
+  background: var(--sheet);
+  border: var(--line);
+  padding: clamp(24px, 4vw, 48px);
+}
+.engine-step-list {
+  display: grid;
+  gap: 24px;
+}
+.engine-step-item {
+  display: grid;
+  grid-template-columns: 36px 1fr;
+  gap: 16px;
+}
+.engine-step-icon {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  background: var(--paper-2);
+  border: 1px solid var(--rule-strong);
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+
+/* Sección de Garantía */
+.guarantee-banner {
+  background: var(--ink);
+  color: var(--paper);
+  padding: clamp(48px, 6vw, 80px) 0;
+  margin-block: var(--s-8);
+}
+.guarantee-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  gap: var(--s-7);
+  align-items: center;
+}
+.guarantee-points {
+  display: grid;
+  gap: 20px;
+}
+.guarantee-item {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+.guarantee-item svg {
+  width: 28px;
+  height: 28px;
+  color: var(--brand-gold);
+  flex: none;
+  margin-top: 2px;
+}
+
+/* Planes */
+.plans-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 24px;
+  max-width: 900px;
+  margin-inline: auto;
+}
+.plan-card {
+  background: var(--sheet);
+  border: var(--line);
+  padding: 36px;
+  display: grid;
+  gap: 24px;
+  align-content: start;
+  position: relative;
+}
+.plan-card--featured {
+  background: var(--paper-2);
+  border-width: 2px;
+}
+.plan-card-tag {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+}
+
+@media (max-width: 900px) {
+  .chapter-lead { grid-template-columns: 1fr; gap: var(--s-4); }
+  .garment-showcase { grid-template-columns: repeat(2, 1fr); }
+  .body-engine-grid { grid-template-columns: 1fr; }
+  .guarantee-grid { grid-template-columns: 1fr; }
+  .plans-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 600px) {
+  .garment-showcase { grid-template-columns: 1fr; }
+  .box-seal-tape { font-size: 9px; height: 38px; }
+}

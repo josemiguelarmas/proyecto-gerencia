@@ -1,0 +1,82 @@
+/* The Clothes Box — Design Tokens (Full-Stack v2)
+   Estética editorial, táctil y humana: papel, tinta, sarga y tipografía de sastrería. */
+
+:root {
+  /* Superficies */
+  --paper: #f5f2eb;
+  --paper-2: #eae4d8;
+  --paper-3: #ded6c7;
+  --sheet: #ffffff;
+  --ink: #161518;
+  --ink-2: #323036;
+  --muted: #6c6673;
+  --rule: #d8d1c3;
+  --rule-strong: #b8b0a1;
+
+  /* Identidad The Clothes Box */
+  --brand-box: #c26928;       /* Tono caja kraft / terracota cálido */
+  --brand-box-dark: #8c4210;
+  --brand-gold: #d49746;      /* Destello de sorpresa / descubrimiento */
+  --brand-gold-wash: #fdf5ea;
+
+  /* Semánticos del sistema */
+  --talla: #254ea3;           /* Capa de certeza de talla */
+  --talla-wash: #e5ebf8;
+  --curaduria: #236340;       /* Curaduría y estilo */
+  --curaduria-wash: #e2ede6;
+  --suscripcion: #b8521a;     /* Planes y logística */
+  --suscripcion-wash: #faede4;
+
+  --ok: #236340;
+  --ok-wash: #e2ede6;
+  --warn: #925f00;
+  --warn-wash: #faf0d8;
+  --danger: #a62a1c;
+  --danger-wash: #fce8e6;
+
+  /* Tipografía */
+  --font-display: "Fraunces", "Iowan Old Style", Garamond, Georgia, serif;
+  --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+
+  --fs-xs: 0.75rem;    /* 12px */
+  --fs-sm: 0.875rem;   /* 14px */
+  --fs-md: 1rem;       /* 16px */
+  --fs-lg: 1.125rem;   /* 18px */
+  --fs-xl: 1.375rem;   /* 22px */
+  --fs-2xl: 1.75rem;   /* 28px */
+  --fs-3xl: clamp(2rem, 1.3rem + 2.5vw, 3rem);
+  --fs-4xl: clamp(2.5rem, 1.5rem + 4vw, 4.5rem);
+
+  /* Espaciado */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --s-8: 64px;
+  --s-9: 96px;
+
+  --gutter: clamp(16px, 4vw, 48px);
+  --measure: 62ch;
+  --page: 1200px;
+  --page-narrow: 880px;
+
+  /* Bordes y sombras */
+  --r-1: 2px;
+  --r-2: 6px;
+  --hair: 1px solid var(--rule);
+  --line: 1px solid var(--ink);
+  --lift: 0 20px 48px -16px rgba(22, 21, 24, 0.28);
+  --lift-sm: 0 6px 18px -4px rgba(22, 21, 24, 0.12);
+
+  /* Animación */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --t-fast: 160ms;
+  --t-med: 280ms;
+
+  --appbar-h: 68px;
+  --tabbar-h: 64px;
+}

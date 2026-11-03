@@ -1,0 +1,92 @@
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-padding-top: calc(var(--appbar-h) + 20px);
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background-color: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--fs-md);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100dvh;
+}
+
+img, svg { display: block; max-width: 100%; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; border: 0; background: none; }
+a { color: inherit; }
+
+h1, h2, h3, h4 { margin: 0; font-weight: 500; line-height: 1.15; }
+h1, h2, .display { font-family: var(--font-display); letter-spacing: -0.02em; }
+h3, h4 { font-family: var(--font-ui); font-weight: 600; letter-spacing: -0.01em; }
+p { margin: 0; }
+ul, ol { margin: 0; padding: 0; list-style: none; }
+fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+legend { padding: 0; }
+
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+[tabindex="-1"]:focus { outline: none; }
+
+.visually-hidden {
+  position: absolute !important; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+
+.skip-link {
+  position: absolute; left: 16px; top: -56px; z-index: 1000;
+  background: var(--ink); color: var(--paper); padding: 12px 18px;
+  font-weight: 600; text-decoration: none; transition: top 0.2s;
+}
+.skip-link:focus { top: 16px; }
+
+.mono { font-family: var(--font-mono); font-size: 0.9em; letter-spacing: -0.01em; }
+.num { font-variant-numeric: tabular-nums; }
+
+.eyebrow {
+  font-family: var(--font-ui);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.lede {
+  font-size: var(--fs-lg);
+  color: var(--ink-2);
+  line-height: 1.5;
+  max-width: var(--measure);
+}
+
+.muted { color: var(--muted); }
+.small { font-size: var(--fs-sm); }
+
+.wrap {
+  width: 100%;
+  max-width: var(--page);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+.wrap-narrow {
+  width: 100%;
+  max-width: var(--page-narrow);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+.stack > * + * { margin-top: var(--stack, var(--s-4)); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
