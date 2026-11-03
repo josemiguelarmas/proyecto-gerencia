@@ -1,6 +1,53 @@
 const { db, verifyPassword } = require('./database');
 const { signToken, authenticateRequest } = require('./auth');
 const { calculateFit, curateBoxItems } = require('./engine');
+const config = require('./config');
+const mail = require('./mail');
+const { runReviewReminders } = require('./jobs');
+
+// Edad cumplida a partir de una fecha YYYY-MM-DD. Devuelve null si la fecha no es válida.
+function ageFromBirthDate(birthDate, now = new Date()) {
+  if (typeof birthDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(birthDate)) return null;
+  const [y, m, d] = birthDate.split('-').map(Number);
+  const birth = new Date(Date.UTC(y, m - 1, d));
+  if (birth.getUTCMonth() !== m - 1 || birth > now) return null;
+  let age = now.getUTCFullYear() - y;
+  const beforeBirthday = now.getUTCMonth() < m - 1 || (now.getUTCMonth() === m - 1 && now.getUTCDate() < d);
+  if (beforeBirthday) age--;
+  return age;
+}
+
+function publicUser(user) {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role || 'CLIENT',
+    emailVerified: user.emailVerified
+  };
+}
+
+function sendVerificationEmail(user) {
+  const token = db.createAuthToken(user.id, 'EMAIL_VERIFY', null);
+  mail.send({
+    to: user.email,
+    type: 'EMAIL_VERIFICATION',
+    subject: 'Confirma tu correo en The Clothes Box',
+    body: `Hola ${user.name}, confirma tu correo abriendo este enlace: ${config.APP_BASE_URL}/#/verificar?token=${token}`
+  });
+}
+
+// Un puntaje de 1 a 5, o undefined si no se envió. Lanza error si viene fuera de rango.
+function parseScore(value, label) {
+  if (value === undefined || value === null || value === '') return undefined;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1 || n > 5) {
+    const err = new Error(`La calificación de ${label} debe ser un número entero de 1 a 5.`);
+    err.status = 400;
+    throw err;
+  }
+  return n;
+}
 
 function sendJson(res, statusCode, data) {
   res.writeHead(statusCode, {
@@ -53,23 +100,92 @@ async function handleApiRequest(req, res, pathname) {
       return sendJson(res, 200, db.catalog);
     }
 
+    if (pathname === '/api/config' && req.method === 'GET') {
+      return sendJson(res, 200, {
+        minAge: config.MIN_AGE,
+        cancellationReasons: config.CANCELLATION_REASONS
+      });
+    }
+
+    if (pathname === '/api/policy' && req.method === 'GET') {
+      return sendJson(res, 200, config.POLICY);
+    }
+
     if (pathname === '/api/auth/register' && req.method === 'POST') {
-      const { name, email, password } = await parseJsonBody(req);
-      if (!name || !email || !password) {
-        return sendJson(res, 400, { error: 'Nombre, correo y contraseña son obligatorios.' });
+      const { name, email, password, birthDate, acceptedPolicy, policyVersion } = await parseJsonBody(req);
+      if (!name || !email || !password || !birthDate) {
+        return sendJson(res, 400, { error: 'Nombre, correo, fecha de nacimiento y contraseña son obligatorios.' });
+      }
+      // HU-02: sin consentimiento explícito no se crea la cuenta
+      if (acceptedPolicy !== true || !policyVersion) {
+        return sendJson(res, 400, { error: 'El consentimiento es obligatorio', code: 'CONSENT_REQUIRED' });
+      }
+      if (policyVersion !== config.POLICY.version) {
+        return sendJson(res, 400, { error: `La versión de la política aceptada (${policyVersion}) no es la vigente (${config.POLICY.version}). Recarga la página.`, code: 'POLICY_OUTDATED' });
+      }
+      const age = ageFromBirthDate(birthDate);
+      if (age === null) {
+        return sendJson(res, 400, { error: 'La fecha de nacimiento no es válida.' });
+      }
+      if (age < config.MIN_AGE) {
+        return sendJson(res, 400, { error: `Debes ser mayor de ${config.MIN_AGE} años para crear una cuenta en The Clothes Box.`, code: 'UNDERAGE' });
       }
       if (password.length < 6) {
         return sendJson(res, 400, { error: 'La contraseña debe tener al menos 6 caracteres.' });
       }
       if (db.findUserByEmail(email)) {
-        return sendJson(res, 400, { error: 'Ya existe una cuenta registrada con este correo electrónico.' });
+        return sendJson(res, 409, { error: 'Este correo ya está registrado', code: 'EMAIL_EXISTS' });
       }
-      const user = db.createUser(name, email, password, 'CLIENT');
+      const user = db.createUser(name, email, password, 'CLIENT', { birthDate, emailVerified: false });
+      db.addConsent(user.id, { accepted: true, policyVersion });
+      sendVerificationEmail(user);
       const token = signToken({ userId: user.id });
-      return sendJson(res, 201, {
-        token,
-        user: { id: user.id, name: user.name, email: user.email, role: user.role }
+      return sendJson(res, 201, { token, user: publicUser(user) });
+    }
+
+    // HU-01: recuperación de contraseña. La respuesta es la misma exista o no el correo.
+    if (pathname === '/api/auth/forgot' && req.method === 'POST') {
+      const { email } = await parseJsonBody(req);
+      if (!email) {
+        return sendJson(res, 400, { error: 'Escribe el correo de tu cuenta.' });
+      }
+      const user = db.findUserByEmail(email);
+      if (user) {
+        const token = db.createAuthToken(user.id, 'PASSWORD_RESET', config.PASSWORD_RESET_TTL_MS);
+        mail.send({
+          to: user.email,
+          type: 'PASSWORD_RESET',
+          subject: 'Recupera tu contraseña de The Clothes Box',
+          body: `Hola ${user.name}, para crear una nueva contraseña abre este enlace (vence en 1 hora y sirve una sola vez): ${config.APP_BASE_URL}/#/restablecer?token=${token}`
+        });
+      }
+      return sendJson(res, 200, {
+        success: true,
+        message: 'Si el correo está registrado, te enviamos un enlace para restablecer la contraseña. Vence en 1 hora.'
       });
+    }
+
+    if (pathname === '/api/auth/reset' && req.method === 'POST') {
+      const { token, password } = await parseJsonBody(req);
+      if (!password || password.length < 6) {
+        return sendJson(res, 400, { error: 'La nueva contraseña debe tener al menos 6 caracteres.' });
+      }
+      const record = db.consumeAuthToken(token, 'PASSWORD_RESET');
+      if (!record) {
+        return sendJson(res, 400, { error: 'El enlace no es válido, ya se usó o venció. Solicita uno nuevo.' });
+      }
+      db.setPassword(record.userId, password);
+      return sendJson(res, 200, { success: true, message: 'Tu contraseña fue actualizada. Ya puedes iniciar sesión.' });
+    }
+
+    if (pathname === '/api/auth/verify-email' && req.method === 'POST') {
+      const { token } = await parseJsonBody(req);
+      const record = db.consumeAuthToken(token, 'EMAIL_VERIFY');
+      if (!record) {
+        return sendJson(res, 400, { error: 'El enlace de verificación no es válido o ya se usó.' });
+      }
+      db.updateUser(record.userId, { emailVerified: true, emailVerifiedAt: new Date().toISOString() });
+      return sendJson(res, 200, { success: true, message: 'Tu correo quedó verificado.' });
     }
 
     if (pathname === '/api/auth/login' && req.method === 'POST') {
@@ -85,7 +201,7 @@ async function handleApiRequest(req, res, pathname) {
       const profile = db.getProfile(user.id);
       return sendJson(res, 200, {
         token,
-        user: { id: user.id, name: user.name, email: user.email, role: user.role || 'CLIENT' },
+        user: publicUser(user),
         profile
       });
     }
@@ -101,7 +217,16 @@ async function handleApiRequest(req, res, pathname) {
     // Auth Me
     if (pathname === '/api/auth/me' && req.method === 'GET') {
       const profile = db.getProfile(authUser.id);
-      return sendJson(res, 200, { user: authUser, profile });
+      return sendJson(res, 200, { user: publicUser(db.findUserById(authUser.id)), profile });
+    }
+
+    if (pathname === '/api/auth/resend-verification' && req.method === 'POST') {
+      const user = db.findUserById(authUser.id);
+      if (user.emailVerified !== false) {
+        return sendJson(res, 200, { success: true, message: 'Tu correo ya está verificado.' });
+      }
+      sendVerificationEmail(user);
+      return sendJson(res, 200, { success: true, message: `Te enviamos un nuevo enlace a ${user.email}.` });
     }
 
     // ----------------------------------------------------
@@ -186,6 +311,27 @@ async function handleApiRequest(req, res, pathname) {
       if (pathname === '/api/admin/feedback' && req.method === 'GET') {
         const ratings = db.getAllRatings();
         return sendJson(res, 200, { ratings });
+      }
+
+      // Bandeja de salida de correos simulados
+      if (pathname === '/api/admin/outbox' && req.method === 'GET') {
+        return sendJson(res, 200, { provider: mail.name, messages: mail.list() });
+      }
+
+      // HU-10: ejecución manual del recordatorio de calificación
+      if (pathname === '/api/admin/jobs/review-reminders' && req.method === 'POST') {
+        return sendJson(res, 200, { success: true, ...runReviewReminders() });
+      }
+
+      // HU-13: conteo agregado de motivos de cancelación (lo usa HU-17)
+      if (pathname === '/api/admin/cancellation-reasons' && req.method === 'GET') {
+        const keys = Object.keys(config.CANCELLATION_REASONS);
+        const { total, counts, unanswered } = db.getCancellationReasonCounts(keys);
+        return sendJson(res, 200, {
+          total,
+          unanswered,
+          reasons: keys.map(key => ({ key, label: config.CANCELLATION_REASONS[key], count: counts[key] }))
+        });
       }
 
       return sendJson(res, 404, { error: `Endpoint administrativo no encontrado: ${req.method} ${pathname}` });
@@ -324,13 +470,27 @@ async function handleApiRequest(req, res, pathname) {
         return sendJson(res, 403, { error: 'Solo puedes valorar prendas de una caja que ya ha sido entregada.' });
       }
 
-      const { productId, score, liked, styleFeedback, preferenceNotes } = await parseJsonBody(req);
+      const body = await parseJsonBody(req);
+      const { productId, liked, styleFeedback, preferenceNotes } = body;
       if (!productId || !box.itemIds.includes(productId)) {
         return sendJson(res, 400, { error: 'La prenda indicada no pertenece a esta caja.' });
       }
 
+      // HU-10: ajuste y estilo se califican por separado (1 a 5). Se acepta calificar solo uno.
+      // score sigue siendo el puntaje general que promedia el panel; si no llega, sale de los parciales.
+      const fitScore = parseScore(body.fitScore, 'ajuste');
+      const styleScore = parseScore(body.styleScore, 'estilo');
+      const partials = [fitScore, styleScore].filter(v => v !== undefined);
+      const score = parseScore(body.score, 'la prenda')
+        ?? (partials.length ? Math.round(partials.reduce((a, b) => a + b, 0) / partials.length) : undefined);
+      if (score === undefined) {
+        return sendJson(res, 400, { error: 'Califica al menos el ajuste o el estilo de la prenda (1 a 5).' });
+      }
+
       const savedRating = db.addRating(authUser.id, boxId, productId, {
-        score: Number(score) || 4,
+        score,
+        fitScore,
+        styleScore,
         liked: liked !== false,
         styleFeedback: styleFeedback || '',
         feedback: preferenceNotes || styleFeedback || '',
@@ -340,8 +500,9 @@ async function handleApiRequest(req, res, pathname) {
       // Recalibración inteligente del perfil
       const profile = db.getProfile(authUser.id);
       const prod = db.getProductById(productId);
+      const styleSignal = styleScore ?? score;
       if (profile && prod) {
-        if (score >= 4 && prod.styles && prod.styles[0]) {
+        if (styleSignal >= 4 && prod.styles && prod.styles[0]) {
           const mainStyle = prod.styles[0];
           if (!profile.styles.includes(mainStyle)) {
             profile.styles = [mainStyle, ...profile.styles].slice(0, 3);
@@ -561,10 +722,47 @@ async function handleApiRequest(req, res, pathname) {
       });
     }
 
+    // Suscripción actual (mínima; HU-08/HU-12 la amplían)
+    if (pathname === '/api/subscription' && req.method === 'GET') {
+      return sendJson(res, 200, { subscription: db.getSubscription(authUser.id) });
+    }
+
+    // HU-13: cancelación con encuesta de salida opcional. La encuesta nunca bloquea la cancelación.
+    if (pathname === '/api/subscription/cancel' && req.method === 'POST') {
+      const { reason, comment } = await parseJsonBody(req);
+      const sub = db.getSubscription(authUser.id);
+      if (sub.status === 'CANCELLED') {
+        return sendJson(res, 409, { error: 'Tu suscripción ya está cancelada.' });
+      }
+      if (sub.status === 'NONE') {
+        return sendJson(res, 409, { error: 'No tienes una suscripción activa para cancelar.' });
+      }
+      const validReason = reason && config.CANCELLATION_REASONS[reason] ? reason : null;
+      const cancellation = db.addCancellation(authUser.id, {
+        plan: sub.plan,
+        reason: validReason,
+        comment: typeof comment === 'string' ? comment.trim().slice(0, 500) : ''
+      });
+      const updated = db.saveSubscription(authUser.id, {
+        status: 'CANCELLED',
+        cancelledAt: cancellation.createdAt,
+        cancellationId: cancellation.id
+      });
+      return sendJson(res, 200, {
+        success: true,
+        message: 'Tu suscripción quedó cancelada. No se harán más cobros ni despachos.',
+        subscription: updated,
+        cancellation
+      });
+    }
+
     // Unmatched API endpoint
     return sendJson(res, 404, { error: `Endpoint ${req.method} ${pathname} no encontrado.` });
 
   } catch (error) {
+    if (error.status) {
+      return sendJson(res, error.status, { error: error.message });
+    }
     console.error('API Error:', error);
     return sendJson(res, 500, { error: error.message || 'Error interno del servidor.' });
   }

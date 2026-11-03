@@ -12,18 +12,22 @@ TCB.views.admin = (() => {
     clients: [],
     products: [],
     returns: [],
-    feedback: []
+    feedback: [],
+    outbox: [],
+    cancellationReasons: null
   };
 
   async function loadAdminData() {
     try {
-      const [metrics, boxesRes, clientsRes, productsRes, returnsRes, feedbackRes] = await Promise.all([
+      const [metrics, boxesRes, clientsRes, productsRes, returnsRes, feedbackRes, outboxRes, cancellationReasons] = await Promise.all([
         TCB.api.admin.metrics(),
         TCB.api.admin.boxes(),
         TCB.api.admin.clients(),
         TCB.api.admin.products(),
         TCB.api.admin.returns(),
-        TCB.api.admin.feedback()
+        TCB.api.admin.feedback(),
+        TCB.api.admin.outbox(),
+        TCB.api.admin.cancellationReasons()
       ]);
 
       cachedData = {
@@ -32,7 +36,9 @@ TCB.views.admin = (() => {
         clients: clientsRes.clients || [],
         products: productsRes.products || [],
         returns: returnsRes.returns || [],
-        feedback: feedbackRes.ratings || []
+        feedback: feedbackRes.ratings || [],
+        outbox: outboxRes.messages || [],
+        cancellationReasons
       };
       return cachedData;
     } catch (e) {
@@ -140,6 +146,12 @@ TCB.views.admin = (() => {
           <button type="button" class="btn btn--quiet admin-tab ${activeTab === 'feedback' ? 'is-active' : ''}" data-tab="feedback">
             ${icon('star', 16)} Feedback de Estilo (${feedback.length})
           </button>
+          <button type="button" class="btn btn--quiet admin-tab ${activeTab === 'cancellations' ? 'is-active' : ''}" data-tab="cancellations">
+            Motivos de Cancelación (${cachedData.cancellationReasons ? cachedData.cancellationReasons.total : 0})
+          </button>
+          <button type="button" class="btn btn--quiet admin-tab ${activeTab === 'outbox' ? 'is-active' : ''}" data-tab="outbox">
+            Bandeja de Salida (${cachedData.outbox.length})
+          </button>
         </div>
 
         <!-- CONTENIDO DINÁMICO DE PESTAÑA -->
@@ -160,6 +172,10 @@ TCB.views.admin = (() => {
         return renderReturnsTab(returns);
       case 'feedback':
         return renderFeedbackTab(feedback);
+      case 'cancellations':
+        return renderCancellationsTab(cachedData.cancellationReasons);
+      case 'outbox':
+        return renderOutboxTab(cachedData.outbox);
       default:
         return renderBoxesTab(boxes);
     }
@@ -386,6 +402,58 @@ TCB.views.admin = (() => {
     `;
   }
 
+  // HU-13: motivos de la encuesta de salida
+  function renderCancellationsTab(data) {
+    if (!data) return '<p class="muted">Sin datos de cancelación.</p>';
+    const max = Math.max(1, ...data.reasons.map(r => r.count));
+    return `
+      <div style="max-width:640px">
+        <h2 class="display" style="font-size:var(--fs-xl);margin-bottom:6px">Motivos de cancelación</h2>
+        <p class="small muted" style="margin-bottom:16px">${data.total} cancelaciones · ${data.unanswered} sin responder la encuesta</p>
+        <div class="stack" style="--stack:10px">
+          ${data.reasons.map(r => `
+            <div style="display:grid;grid-template-columns:150px 1fr 36px;gap:10px;align-items:center">
+              <span class="small">${r.label}</span>
+              <div style="background:var(--paper-2);height:14px;border-radius:var(--r-full);overflow:hidden">
+                <div style="width:${(r.count / max) * 100}%;height:100%;background:var(--brand-box)"></div>
+              </div>
+              <span class="mono small" style="text-align:right">${r.count}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  // Correos simulados (MAIL_PROVIDER=simulated): no se envía nada real
+  function renderOutboxTab(messages) {
+    return `
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+          <div>
+            <h2 class="display" style="font-size:var(--fs-xl)">Bandeja de salida <span class="badge badge--dark" style="vertical-align:middle">SIMULADO</span></h2>
+            <p class="small muted">Correos que el sistema habría enviado. No se envía correo real.</p>
+          </div>
+          <button type="button" class="btn btn--ghost btn--sm" id="btn-run-reminders">Ejecutar recordatorios de calificación</button>
+        </div>
+        ${messages.length === 0 ? '<p class="muted">La bandeja está vacía.</p>' : `
+          <div class="stack" style="--stack:10px">
+            ${messages.map(m => `
+              <details style="background:var(--sheet);border:var(--line);border-radius:var(--r-1);padding:12px 16px">
+                <summary style="cursor:pointer;display:flex;gap:10px;flex-wrap:wrap;align-items:baseline">
+                  <span class="mono small muted">${m.type}</span>
+                  <strong class="small" style="flex:1;min-width:200px">${m.subject}</strong>
+                  <span class="small muted">${m.to} · ${new Date(m.createdAt).toLocaleString('es-CO')}</span>
+                </summary>
+                <p class="small" style="margin-top:10px;word-break:break-all">${m.body}</p>
+              </details>
+            `).join('')}
+          </div>
+        `}
+      </div>
+    `;
+  }
+
   // PESTAÑA 5: FEEDBACK Y CALIFICACIONES DE ESTILO
   function renderFeedbackTab(feedback) {
     return `
@@ -402,7 +470,10 @@ TCB.views.admin = (() => {
               <div style="flex:1">
                 <div style="display:flex;justify-content:space-between;align-items:baseline">
                   <span class="badge badge--dark" style="font-size:10px">${fb.productBrand || 'Marca'}</span>
-                  <span style="color:var(--brand-box);font-weight:700">★ ${fb.score}/5</span>
+                  <span style="color:var(--brand-box);font-weight:700;text-align:right">
+                    ★ ${fb.score}/5
+                    ${fb.fitScore || fb.styleScore ? `<span class="small muted" style="display:block;font-weight:500">Ajuste ${fb.fitScore || '—'} · Estilo ${fb.styleScore || '—'}</span>` : ''}
+                  </span>
                 </div>
                 <h4 style="font-weight:700;font-size:var(--fs-sm);margin-top:4px">${fb.productName}</h4>
                 <p class="small" style="margin-top:6px;font-style:italic">"${fb.styleFeedback || fb.feedback || 'Sin comentario adicional'}"</p>
@@ -456,6 +527,21 @@ TCB.views.admin = (() => {
         TCB.state.toast('Panel administrativo actualizado.');
       } catch (e) {
         TCB.state.toast('Error al actualizar datos.', { type: 'danger' });
+      }
+    });
+
+    root.querySelector('#btn-run-reminders')?.addEventListener('click', async () => {
+      try {
+        const res = await TCB.api.admin.runReviewReminders();
+        await loadAdminData();
+        const container = document.getElementById('app-view');
+        if (container) {
+          container.innerHTML = render(TCB.state.get());
+          mount(container);
+        }
+        TCB.state.toast(`Recordatorios enviados: ${res.sent}.`);
+      } catch (e) {
+        TCB.state.toast('Error al ejecutar los recordatorios.', { type: 'danger' });
       }
     });
 

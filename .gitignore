@@ -1,0 +1,3 @@
+backend/data/outbox.json
+backend/data/*.tmp.*
+node_modules/
