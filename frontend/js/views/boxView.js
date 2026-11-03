@@ -314,7 +314,7 @@ TCB.views.box = (() => {
             ${userRating ? `
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
                 <span class="badge badge--accent" style="font-size:11px">
-                  ${icon('star', 12)} ${userRating.score}/5 ${userRating.liked ? '· Te gustó' : '· No es tu estilo'}
+                  ${icon('star', 12)} ${userRating.fitScore ? `Ajuste ${userRating.fitScore}/5` : ''}${userRating.fitScore && userRating.styleScore ? ' · ' : ''}${userRating.styleScore ? `Estilo ${userRating.styleScore}/5` : ''}${!userRating.fitScore && !userRating.styleScore ? `${userRating.score}/5` : ''} ${userRating.liked ? '· Te gustó' : '· No es tu estilo'}
                 </span>
                 <span class="small muted" style="font-size:11px">Feedback registrado</span>
               </div>
@@ -391,17 +391,19 @@ TCB.views.box = (() => {
               </div>
             </div>
 
-            <!-- Calificación con estrellas -->
-            <div class="field">
-              <label for="fb-score">Calificación general (1 a 5 estrellas)</label>
-              <select class="input" id="fb-score" name="score">
-                <option value="5" ${existingRating.score === 5 || !existingRating.score ? 'selected' : ''}>★★★★★ Excelente selección</option>
-                <option value="4" ${existingRating.score === 4 ? 'selected' : ''}>★★★★☆ Buena prenda</option>
-                <option value="3" ${existingRating.score === 3 ? 'selected' : ''}>★★★☆☆ Aceptable</option>
-                <option value="2" ${existingRating.score === 2 ? 'selected' : ''}>★★☆☆☆ Poco afin a mi gusto</option>
-                <option value="1" ${existingRating.score === 1 ? 'selected' : ''}>★☆☆☆☆ No combina conmigo</option>
-              </select>
-            </div>
+            <!-- HU-10: ajuste y estilo se califican por separado; se puede dejar uno sin calificar -->
+            ${[['fitScore', 'Ajuste de la talla'], ['styleScore', 'Estilo de la prenda']].map(([name, label]) => `
+              <div class="field">
+                <label for="fb-${name}">${label} (1 a 5 estrellas)</label>
+                <select class="input" id="fb-${name}" name="${name}">
+                  <option value="">Sin calificar por ahora</option>
+                  ${[5, 4, 3, 2, 1].map(n => `
+                    <option value="${n}" ${existingRating[name] === n ? 'selected' : ''}>${'★'.repeat(n)}${'☆'.repeat(5 - n)} ${n}/5</option>
+                  `).join('')}
+                </select>
+              </div>
+            `).join('')}
+            <p class="error small" id="fb-error" role="alert"></p>
 
             <!-- Etiquetas rápidas de preferencia -->
             <div class="field">
@@ -432,7 +434,12 @@ TCB.views.box = (() => {
         form.addEventListener('submit', async e => {
           e.preventDefault();
           const liked = form.liked.value === 'true';
-          const score = Number(form.score.value);
+          const fitScore = form.fitScore.value ? Number(form.fitScore.value) : undefined;
+          const styleScore = form.styleScore.value ? Number(form.styleScore.value) : undefined;
+          if (fitScore === undefined && styleScore === undefined) {
+            modalEl.querySelector('#fb-error').textContent = 'Califica al menos el ajuste o el estilo.';
+            return;
+          }
           const styleFeedback = form.styleFeedback.value;
           const preferenceNotes = form.preferenceNotes.value.trim();
 
@@ -440,7 +447,8 @@ TCB.views.box = (() => {
             await TCB.api.boxes.itemFeedback(item.boxId, {
               productId: item.id,
               liked,
-              score,
+              fitScore,
+              styleScore,
               styleFeedback,
               preferenceNotes
             });
