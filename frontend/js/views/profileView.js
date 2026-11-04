@@ -200,6 +200,13 @@ TCB.views.profile = (() => {
           <h2 class="display" style="font-size:var(--fs-xl);margin-bottom:8px">Mi suscripción</h2>
           <div id="subscription-body"><p class="small muted">Cargando…</p></div>
         </section>
+
+        <!-- HU-15: DATOS DE FACTURACIÓN -->
+        <section id="fiscal-section" style="background:var(--sheet);border:var(--line);padding:28px;margin-top:32px">
+          <h2 class="display" style="font-size:var(--fs-xl);margin-bottom:8px">Datos de facturación</h2>
+          <p class="small muted" style="margin-bottom:12px">Los usamos para tu factura electrónica de cada cobro.</p>
+          <div id="fiscal-body"><p class="small muted">Cargando…</p></div>
+        </section>
       </div>
     `;
   }
@@ -405,6 +412,32 @@ TCB.views.profile = (() => {
     });
   }
 
+  // HU-15: datos fiscales para la factura electrónica
+  async function renderFiscal(root, user) {
+    const el = root.querySelector('#fiscal-body');
+    if (!el) return;
+    const cfg = await TCB.views.subscribe.loadConfig();
+    el.innerHTML = `
+      <form id="fiscal-form" class="stack" style="--stack:12px;max-width:560px" novalidate>
+        ${TCB.views.subscribe.fiscalFieldsHtml(user.fiscal || {}, cfg.fiscalDocTypes)}
+        <p class="error small" id="fiscal-error" role="alert"></p>
+        <button type="submit" class="btn btn--ghost">Guardar datos de facturación</button>
+      </form>
+    `;
+    el.querySelector('#fiscal-form').addEventListener('submit', async e => {
+      e.preventDefault();
+      const errEl = el.querySelector('#fiscal-error');
+      errEl.textContent = '';
+      try {
+        const res = await TCB.api.profile.saveFiscal(TCB.views.subscribe.readFiscal(e.target));
+        await TCB.state.loadUserSession();
+        TCB.state.toast(res.message);
+      } catch (err) {
+        errEl.textContent = err.data?.error || err.message;
+      }
+    });
+  }
+
   // La encuesta de salida es opcional: se puede cancelar sin responderla.
   async function openCancelModal(onDone) {
     let reasons = {};
@@ -470,6 +503,7 @@ TCB.views.profile = (() => {
     });
 
     renderSubscription(root);
+    renderFiscal(root, TCB.state.get().user);
     renderStyleHistory(root, TCB.state.get().profile || {});
     root.querySelector('#btn-repeat-quiz')?.addEventListener('click', () => {
       TCB.views.onboarding.startRepeat(TCB.state.get().profile);
