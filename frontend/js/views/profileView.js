@@ -195,7 +195,7 @@ TCB.views.profile = (() => {
           <div id="style-history" style="margin-top:14px"><p class="small muted">Cargando…</p></div>
         </section>
 
-        <!-- HU-13: MI SUSCRIPCIÓN -->
+        <!-- HU-08/HU-12/HU-13: MI SUSCRIPCIÓN -->
         <section id="subscription-section" style="background:var(--sheet);border:var(--line);padding:28px;margin-top:32px">
           <h2 class="display" style="font-size:var(--fs-xl);margin-bottom:8px">Mi suscripción</h2>
           <div id="subscription-body"><p class="small muted">Cargando…</p></div>
@@ -223,26 +223,186 @@ TCB.views.profile = (() => {
     }
   }
 
-  const PLAN_NAMES = { esencial: 'Esencial · 3 prendas', estilo: 'Estilo · 5 prendas' };
-  const STATUS_NAMES = { ACTIVE: 'Activa', CANCELLED: 'Cancelada', NONE: 'Sin suscripción' };
+  const STATUS_NAMES = { ACTIVE: 'Activa', PAUSED: 'En pausa', PAST_DUE: 'Pago pendiente', CANCELLED: 'Cancelada', NONE: 'Sin suscripción' };
+  const cop = n => `COP ${Number(n).toLocaleString('es-CO')}`;
+  const day = iso => (iso ? new Date(iso).toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' }) : '—');
 
+  async function runAction(root, fn) {
+    try {
+      const res = await fn();
+      TCB.state.toast(res.message);
+      await TCB.state.loadUserSession();
+      renderSubscription(root);
+    } catch (err) {
+      TCB.state.toast(err.data?.error || err.message, { type: 'danger' });
+    }
+  }
+
+  // HU-08/HU-12: estado, tarjeta, próximo cobro y acciones según la matriz de estados.
   async function renderSubscription(root) {
     const bodyEl = root.querySelector('#subscription-body');
     if (!bodyEl) return;
     try {
-      const { subscription: sub } = await TCB.api.subscription.get();
+      const [{ subscription: sub, planChange, payments, invoices }, cfg] = await Promise.all([
+        TCB.api.subscription.get(),
+        TCB.views.subscribe.loadConfig()
+      ]);
+      const status = sub.status;
       bodyEl.innerHTML = `
-        <p class="small">Plan: <strong>${PLAN_NAMES[sub.plan] || sub.plan}</strong> · Estado: <strong>${STATUS_NAMES[sub.status] || sub.status}</strong></p>
-        ${sub.status === 'CANCELLED' ? `
-          <p class="small muted" style="margin-top:6px">Cancelada el ${new Date(sub.cancelledAt).toLocaleDateString('es-CO')}. No se harán más cobros ni despachos.</p>
-        ` : sub.status === 'ACTIVE' ? `
-          <button type="button" class="btn btn--quiet btn--sm" id="btn-cancel-subscription" style="margin-top:12px;color:var(--danger)">Cancelar suscripción</button>
-        ` : `<p class="small muted" style="margin-top:6px">Completa el quiz de estilo para activar tu plan.</p>`}
+        <p class="small">Plan: <strong>${sub.planName}${sub.priceCOP ? ` · ${cop(sub.priceCOP)}/mes` : ''}</strong> · Estado: <strong>${STATUS_NAMES[status] || status}</strong></p>
+        ${sub.cardLast4 && status !== 'CANCELLED' ? `<p class="small muted" style="margin-top:4px">Tarjeta: ${sub.cardBrand} •••• ${sub.cardLast4} <span class="mono">(SIMULADO)</span></p>` : ''}
+        ${status === 'ACTIVE' && !sub.dunning ? `<p class="small muted" style="margin-top:4px">Próximo cobro: ${day(sub.nextChargeAt)}</p>` : ''}
+        ${sub.pendingPlan ? `<div class="banner banner--info small" style="margin-top:10px">Desde el cobro del ${day(sub.pendingPlanFrom)} pasas al plan <strong>${sub.pendingPlanName}</strong>.</div>` : ''}
+        ${status === 'PAUSED' ? `<div class="banner banner--warn small" style="margin-top:10px">Tu plan está en pausa: este mes no te cobramos ni despachamos. Se reanuda solo el <strong>${day(sub.pausedUntil)}</strong>.</div>` : ''}
+        ${sub.dunning && status === 'ACTIVE' ? `<div class="banner banner--warn small" style="margin-top:10px">No pudimos cobrar tu plan (${sub.dunning.lastReason}). Lo reintentaremos el ${day(sub.dunning.nextRetryAt)}. Puedes actualizar tu tarjeta ahora.</div>` : ''}
+        ${status === 'PAST_DUE' ? `<div class="banner banner--danger small" style="margin-top:10px"><strong>Pago pendiente.</strong> Agotamos los reintentos (${sub.dunning?.lastReason || 'pago rechazado'}). No despacharemos cajas hasta que actualices tu medio de pago.</div>` : ''}
+        ${status === 'CANCELLED' ? `<p class="small muted" style="margin-top:6px">Cancelada el ${day(sub.cancelledAt)}. No se harán más cobros ni despachos.</p>` : ''}
+
+        <div class="sub-actions">
+          ${status === 'NONE' || status === 'CANCELLED' ? `<a class="btn btn--gold" href="#/suscripcion">${status === 'NONE' ? 'Elegir plan y pagar' : 'Volver a suscribirme'}</a>` : ''}
+          ${status === 'PAST_DUE' || sub.dunning ? `<button type="button" class="btn btn--gold" data-sub="card">Actualizar medio de pago</button>` : ''}
+          ${status === 'ACTIVE' && !sub.dunning ? `<button type="button" class="btn btn--ghost" data-sub="pause">Pausar 1 mes</button>` : ''}
+          ${status === 'PAUSED' ? `<button type="button" class="btn btn--gold" data-sub="resume">Reanudar ahora</button>` : ''}
+          ${status === 'ACTIVE' || status === 'PAUSED' ? `<button type="button" class="btn btn--ghost" data-sub="plan">Cambiar plan</button>` : ''}
+          ${status === 'ACTIVE' && !sub.dunning ? `<button type="button" class="btn btn--ghost" data-sub="card">Cambiar tarjeta</button>` : ''}
+          ${['ACTIVE', 'PAUSED', 'PAST_DUE'].includes(status) ? `<button type="button" class="btn btn--quiet" data-sub="cancel" style="color:var(--danger)">Cancelar suscripción</button>` : ''}
+        </div>
+
+        ${payments.length ? `
+          <details style="margin-top:16px">
+            <summary class="small" style="cursor:pointer;font-weight:600">Pagos y facturas (${payments.length})</summary>
+            <table class="returns-history-table" style="margin-top:8px">
+              <thead><tr><th>Fecha</th><th>Monto</th><th>Estado</th><th>Factura</th></tr></thead>
+              <tbody>
+                ${payments.map(p => {
+                  const inv = invoices.find(i => i.id === p.invoiceId);
+                  return `<tr>
+                    <td class="small">${new Date(p.createdAt).toLocaleDateString('es-CO')}</td>
+                    <td class="mono small">${cop(p.amountCOP)}</td>
+                    <td class="small">${p.status === 'APPROVED' ? 'Aprobado' : `Rechazado · ${p.reason}`}</td>
+                    <td class="small">${inv ? `${inv.number} · ${inv.status === 'ISSUED' ? 'emitida' : 'en proceso'}` : '—'}</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+            <p class="small muted" style="margin-top:6px">Pagos y facturas SIMULADOS (ambiente de habilitación DIAN, sin validez fiscal).</p>
+          </details>
+        ` : ''}
       `;
-      bodyEl.querySelector('#btn-cancel-subscription')?.addEventListener('click', () => openCancelModal(() => renderSubscription(root)));
+
+      const on = (name, fn) => bodyEl.querySelectorAll(`[data-sub="${name}"]`).forEach(b => b.addEventListener('click', fn));
+      on('pause', () => openPauseModal(root));
+      on('resume', () => runAction(root, () => TCB.api.subscription.resume()));
+      on('plan', () => openPlanModal(root, sub, planChange, cfg));
+      on('card', () => openCardModal(root, cfg));
+      on('cancel', () => (status === 'ACTIVE' && !sub.dunning ? openPauseInsteadModal(root) : openCancelModal(() => renderSubscription(root))));
     } catch (e) {
       bodyEl.innerHTML = `<p class="small error">No pudimos cargar tu suscripción.</p>`;
     }
+  }
+
+  function openPauseModal(root) {
+    TCB.state.modal({
+      eyebrow: 'Pausar 1 mes',
+      title: '¿Pausamos tu próximo mes?',
+      body: '<p class="small">No te cobramos ni despachamos la próxima caja. Tu plan se reanuda solo un mes después y puedes reanudarlo antes cuando quieras.</p>',
+      foot: '<button type="button" class="btn btn--quiet" data-close>No, mantener</button><button type="button" class="btn btn--gold" data-ok>Pausar 1 mes</button>',
+      onMount(modalEl, close) {
+        modalEl.querySelector('[data-ok]').addEventListener('click', () => {
+          close();
+          runAction(root, () => TCB.api.subscription.pause());
+        });
+      }
+    });
+  }
+
+  // HU-12: antes de cancelar se ofrece pausar como alternativa.
+  function openPauseInsteadModal(root) {
+    TCB.state.modal({
+      eyebrow: 'Cancelar suscripción',
+      title: '¿Prefieres pausar un mes?',
+      body: '<p class="small">Si necesitas un respiro, pausa tu plan: no te cobramos ni despachamos el próximo mes y se reanuda solo. Tu perfil de estilo se conserva.</p>',
+      foot: '<button type="button" class="btn btn--quiet" data-cancel-anyway style="color:var(--danger)">Quiero cancelar</button><button type="button" class="btn btn--gold" data-pause>Pausar 1 mes</button>',
+      onMount(modalEl, close) {
+        modalEl.querySelector('[data-pause]').addEventListener('click', () => {
+          close();
+          runAction(root, () => TCB.api.subscription.pause());
+        });
+        modalEl.querySelector('[data-cancel-anyway]').addEventListener('click', () => {
+          close();
+          openCancelModal(() => renderSubscription(root));
+        });
+      }
+    });
+  }
+
+  function openPlanModal(root, sub, planChange, cfg) {
+    const target = sub.pendingPlan || sub.plan;
+    const effectText = planChange && planChange.beforeCutoff
+      ? `Hoy es antes del día de corte (${planChange.cutoffDay}): el cambio aplica desde tu próxima caja, con el cobro del ${day(planChange.effectiveFrom)}.`
+      : `Ya pasó el día de corte (${planChange ? planChange.cutoffDay : cfg.cutoffDay}): tu próxima caja sigue con el plan actual y el nuevo aplica desde el cobro del ${planChange ? day(planChange.effectiveFrom) : 'siguiente'}.`;
+    TCB.state.modal({
+      eyebrow: 'Cambiar plan',
+      title: 'Elige tu plan',
+      body: `
+        <form id="plan-form" class="stack" style="--stack:12px" novalidate>
+          ${Object.entries(cfg.plans).map(([key, p]) => `
+            <label style="display:flex;gap:10px;align-items:center;font-size:var(--fs-sm);cursor:pointer">
+              <input type="radio" name="plan" value="${key}" ${target === key ? 'checked' : ''}>
+              <span><strong>${p.name}</strong> · ${p.items} prendas · ${cop(p.priceCOP)}/mes${key === sub.plan ? ' <span class="muted">(actual)</span>' : ''}</span>
+            </label>
+          `).join('')}
+          <p class="small muted">${effectText}</p>
+          <p class="error small" id="plan-error" role="alert"></p>
+          <button type="submit" class="btn btn--gold btn--block">Confirmar cambio</button>
+        </form>
+      `,
+      onMount(modalEl, close) {
+        modalEl.querySelector('#plan-form').addEventListener('submit', async e => {
+          e.preventDefault();
+          const plan = e.target.querySelector('input[name="plan"]:checked').value;
+          try {
+            const res = await TCB.api.subscription.changePlan(plan);
+            close();
+            TCB.state.toast(res.message, { ms: 7000 });
+            await TCB.state.loadUserSession();
+            renderSubscription(root);
+          } catch (err) {
+            modalEl.querySelector('#plan-error').textContent = err.data?.error || err.message;
+          }
+        });
+      }
+    });
+  }
+
+  // HU-08: actualizar el medio de pago (en mora cobra en el acto para regularizar).
+  function openCardModal(root, cfg) {
+    TCB.state.modal({
+      eyebrow: 'Medio de pago',
+      title: 'Actualiza tu tarjeta',
+      body: `
+        <form id="card-form" class="stack" style="--stack:12px" novalidate>
+          ${TCB.views.subscribe.cardFieldsHtml(cfg.testCards)}
+          <p class="error small" id="card-error" role="alert"></p>
+          <button type="submit" class="btn btn--gold btn--block">Guardar tarjeta</button>
+        </form>
+      `,
+      onMount(modalEl, close) {
+        const form = modalEl.querySelector('#card-form');
+        form.addEventListener('submit', async e => {
+          e.preventDefault();
+          try {
+            const card = await TCB.views.subscribe.tokenizeFrom(form);
+            const res = await TCB.api.subscription.updatePaymentMethod(card.token);
+            close();
+            TCB.state.toast(res.message, { ms: 6000 });
+            renderSubscription(root);
+          } catch (err) {
+            modalEl.querySelector('#card-error').textContent = err.data?.error || err.message;
+          }
+        });
+      }
+    });
   }
 
   // La encuesta de salida es opcional: se puede cancelar sin responderla.
