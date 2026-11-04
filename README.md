@@ -56,6 +56,9 @@
 | :--- | :--- | :--- | :--- | :--- |
 | **Cliente** | `demo@theclothesbox.co` | `demo123` | `#/caja` | Botón *"Entrar Cliente"* en login |
 | **Administrador** | `admin@theclothesbox.co` | `admin123` | `#/admin` | Botón *"Entrar Admin"* en login |
+| **Estilista** (Sprint 2) | `estilista@theclothesbox.co` | `estilista123` | `#/estilista` | Botón *"Cuenta Estilista"* en login |
+
+El cliente demo tiene una suscripción activa pagada con la tarjeta de prueba 4242 (SIMULADO).
 
 ---
 
@@ -99,7 +102,7 @@ prototipo-web/
 │           └── profileView.js     # Perfil antropométrico y marcas locales
 │
 ├── tests/
-│   └── api.test.js        # Suite de 15 pruebas automatizadas (Roles, Sorpresa, Admin, API)
+│   └── api.test.js        # Suite de 70 pruebas automatizadas (Sprint 1 y Sprint 2)
 ├── package.json           # Scripts de arranque (`npm start`, `npm test`)
 ├── server.js              # Punto de entrada de la aplicación
 └── README.md              # Documentación técnica completa
@@ -120,14 +123,16 @@ Abre en tu navegador:
 http://localhost:3000
 ```
 
-### Ejecutar las 15 Pruebas Automatizadas del Backend
+### Ejecutar las Pruebas Automatizadas del Backend (70 al cierre del Sprint 2)
 ```bash
 npm test
 # o directamente:
 node tests/api.test.js
 ```
 
-Salida de la suite de pruebas:
+Las pruebas levantan el servidor en el puerto 3199 sobre copias temporales de la base, el catálogo y la bandeja de salida, así que no modifican `backend/data/`. Si una falla, el proceso termina con código 1. El detalle de cada prueba por HU está en `EVIDENCIAS_SPRINT2.md`.
+
+Salida de las 15 pruebas originales del Sprint 1:
 ```text
 --- INICIANDO PRUEBAS DE BACKEND, ROLES Y REGLAS DE NEGOCIO ---
 ✓ 1. Catálogo con fotografías reales confirmado (18 productos con URL válida)
@@ -177,3 +182,61 @@ Salida de la suite de pruebas:
 | `GET` | `/api/admin/returns` | `ADMIN` | **Gestión de solicitudes de cambio de talla** |
 | `PUT` | `/api/admin/returns/:id` | `ADMIN` | **Actualizar estado de recolección/taller** |
 | `GET` | `/api/admin/feedback` | `ADMIN` | **Monitoreo de valoraciones de estilo** |
+
+
+---
+
+## 7. Sprint 2: servicios simulados, variables de entorno y scripts
+
+### Servicios externos simulados
+No hay credenciales reales. Cada servicio es un adaptador con la misma interfaz que tendría un proveedor real y un proveedor `simulated` elegido por variable de entorno. Todo lo que generan dice **SIMULADO** en pantalla y en los documentos.
+
+| Servicio | Adaptador | Qué hace en modo simulado |
+| :--- | :--- | :--- |
+| Correo | `backend/mail/index.js` | Guarda cada correo en `backend/data/outbox.json`. Se ve en Panel → Bandeja de Salida. |
+| Pasarela de pagos | `backend/payments/index.js` | Tokeniza la tarjeta (nunca guarda el número completo ni el CVV), cobra con llave de idempotencia y firma webhooks con HMAC. Tarjetas de prueba: `4242 4242 4242 4242` aprueba, `4000 0000 0000 0002` rechaza, `4000 0000 0000 0341` aprueba el primer cobro y falla los recurrentes. |
+| Facturación electrónica | `backend/invoicing/index.js` | Imita el ambiente de habilitación de la DIAN: factura `SETT-n` con IVA y CUFE simulado. |
+| Operador logístico | `backend/shipping/index.js` | Guías de despacho `TCB-AAAAMMDD-0001` y de devolución `TCB-DEV-AAAAMMDD-0001`. |
+
+### Variables de entorno
+Todas son opcionales; sin ellas la app corre con los valores por defecto.
+
+| Variable | Por defecto | Uso |
+| :--- | :--- | :--- |
+| `PORT` | `3000` | Puerto del servidor. |
+| `APP_BASE_URL` | `http://localhost:3000` | Enlaces dentro de los correos. |
+| `MAIL_PROVIDER` | `simulated` | Proveedor de correo. |
+| `PAYMENT_PROVIDER` | `simulated` | Pasarela de pagos. |
+| `PAYMENT_WEBHOOK_SECRET` | `whsec_simulado_desarrollo` | Secreto HMAC del webhook `POST /api/webhooks/payments` (cabecera `X-Signature`). |
+| `PAYMENT_RETRY_DAYS` | `1,3,5` | Días de reintento del cobro recurrente fallido. |
+| `INVOICING_PROVIDER` | `simulated` | Proveedor de facturación electrónica. |
+| `INVOICING_FAIL` | sin definir | Con `1`, el proveedor de facturación falla y las facturas quedan en cola de reintento con alerta en el panel. |
+| `SHIPPING_PROVIDER` | `simulated` | Operador logístico. |
+| `SUBSCRIPTION_CUTOFF_DAY` | `25` | Día de corte para que un cambio de plan alcance la próxima caja. |
+| `RETURN_WINDOW_BUSINESS_DAYS` | `5` | Plazo del cambio por talla en días hábiles desde la entrega. |
+| `REVIEW_REMINDER_DAYS` | `3` | Días desde la entrega para recordar la calificación. |
+| `TCB_DB_FILE` | `backend/data/db.json` | Archivo de la base. Las pruebas y los scripts lo usan para trabajar sobre una copia. |
+| `TCB_CATALOG_FILE` | `backend/data/catalog.json` | Archivo del catálogo. |
+| `TCB_OUTBOX_FILE` | `backend/data/outbox.json` | Bandeja de salida de correos. |
+
+El umbral de alerta de churn (9 % por defecto) se cambia desde Panel → KPIs del mes y queda guardado en la base.
+
+### Scripts
+```bash
+node scripts/seed-demo.js            # 100 suscriptores sintéticos con altas y cancelaciones en 3 meses (seedDemo: true)
+node scripts/seed-demo.js --reset    # borra solo esos datos de prueba
+node scripts/evaluate-model.js       # calificación simulada del motor antes y después del reentrenamiento
+node scripts/migrate-catalog-variants.js   # migración del catálogo a variantes (ya aplicada)
+```
+
+Los usuarios del seed usan correos `@seed.theclothesbox.test`, no tienen contraseña ni medio de pago, y el cobro recurrente y la generación de cajas los ignoran. Para no tocar la base real, el seed se puede correr sobre una copia:
+```bash
+TCB_DB_FILE=/ruta/copia-db.json node scripts/seed-demo.js
+```
+
+### Pantallas nuevas del Sprint 2
+- **Cliente:** elegir plan y pagar (`#/suscripcion`), Mi suscripción (pausar, cambiar plan, cambiar tarjeta, cancelar), datos de facturación, "Mis datos" (editar nombre y correo, descargar mis datos, eliminar cuenta), seguimiento de la guía en "Mi Caja" y cambios por talla con plazo y guías.
+- **Estilista:** cola de curaduría (`#/estilista`) para aprobar, reemplazar o rechazar cajas.
+- **Administrador:** KPIs del mes, solicitudes de datos, cajas por despachar, pagos, facturación, motivos de cancelación, bandeja de salida, importación CSV del catálogo, generación de cajas del mes y reentrenamiento del motor.
+
+La evidencia por HU (escenarios, archivos y líneas, pruebas y pendientes) está en `EVIDENCIAS_SPRINT2.md`.
