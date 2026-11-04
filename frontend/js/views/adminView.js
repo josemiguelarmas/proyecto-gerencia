@@ -769,7 +769,11 @@ TCB.views.admin = (() => {
   function renderFeedbackTab(feedback) {
     return `
       <div>
-        <h2 class="display" style="font-size:var(--fs-xl);margin-bottom:16px">Feedback de Estilo y Valoraciones de Clientes (${feedback.length})</h2>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+          <h2 class="display" style="font-size:var(--fs-xl)">Feedback de Estilo y Valoraciones de Clientes (${feedback.length})</h2>
+          <button type="button" class="btn btn--gold btn--sm" id="btn-ingest-feedback">Reentrenar motor con el feedback</button>
+        </div>
+        <div id="ingest-report"></div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));gap:16px">
           ${feedback.map(fb => `
             <div style="background:var(--sheet);border:var(--line);border-radius:var(--r-1);padding:18px;display:flex;gap:14px">
@@ -863,6 +867,18 @@ TCB.views.admin = (() => {
         mount(container);
       }
     }
+
+    // HU-11: reentrenamiento del motor
+    root.querySelector('#btn-ingest-feedback')?.addEventListener('click', async () => {
+      try {
+        const res = await TCB.api.admin.ingestFeedback();
+        document.querySelector('#ingest-report').innerHTML = `
+          <div class="banner banner--info" style="margin-bottom:16px"><p class="small">Motor ${res.rulesVersion}: ${res.ratingsProcessed} calificaciones (${res.lowRatings} con estilo ≤ 2) y ${res.correctionsProcessed} correcciones del estilista procesadas · ${res.profilesUpdated} perfiles actualizados.</p></div>
+        `;
+      } catch (e) {
+        TCB.state.toast(e.message || 'Error al reentrenar.', { type: 'danger' });
+      }
+    });
 
     root.querySelectorAll('[data-dispatch-box]').forEach(btn => {
       btn.addEventListener('click', async () => {
