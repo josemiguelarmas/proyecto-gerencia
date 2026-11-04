@@ -20,7 +20,7 @@ function verifyPassword(password, stored) {
 }
 
 // Colecciones de la base. Las de Sprint 2 se crean vacías en bases existentes.
-const COLLECTIONS = ['users', 'profiles', 'boxes', 'ratings', 'returns', 'consents', 'authTokens', 'subscriptions', 'cancellations', 'corrections', 'quizSessions', 'profileVersions', 'payments', 'invoices', 'alerts', 'inventoryMovements'];
+const COLLECTIONS = ['users', 'profiles', 'boxes', 'ratings', 'returns', 'consents', 'authTokens', 'subscriptions', 'cancellations', 'corrections', 'quizSessions', 'profileVersions', 'payments', 'invoices', 'alerts', 'inventoryMovements', 'dataRequests', 'settings'];
 
 function emptyData() {
   return Object.fromEntries(COLLECTIONS.map(c => [c, []]));
@@ -495,6 +495,41 @@ class Database {
     return [...this.data.alerts].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   }
 
+  // HU-16: solicitudes del titular (consulta, rectificación, supresión) con su tiempo de respuesta
+  addDataRequest(userId, type, { requestedAt, status = 'COMPLETED', detail = '' } = {}) {
+    const resolvedAt = new Date();
+    const request = {
+      id: `dreq_${crypto.randomBytes(6).toString('hex')}`,
+      userId,
+      type,
+      status,
+      detail,
+      requestedAt: (requestedAt || resolvedAt).toISOString(),
+      resolvedAt: resolvedAt.toISOString(),
+      responseMs: resolvedAt - (requestedAt || resolvedAt)
+    };
+    this.data.dataRequests.push(request);
+    this.save();
+    return request;
+  }
+
+  // HU-17: ajustes editables desde el panel
+  getSetting(key, fallback) {
+    const found = this.data.settings.find(s => s.key === key);
+    return found ? found.value : fallback;
+  }
+
+  setSetting(key, value) {
+    let found = this.data.settings.find(s => s.key === key);
+    if (!found) {
+      found = { key };
+      this.data.settings.push(found);
+    }
+    Object.assign(found, { value, updatedAt: new Date().toISOString() });
+    this.save();
+    return found;
+  }
+
   addCancellation(userId, { plan, reason, comment }) {
     const cancellation = {
       id: `cnl_${crypto.randomBytes(6).toString('hex')}`,
@@ -683,6 +718,8 @@ class Database {
       totalCostCOP: boxData.totalCostCOP ?? null,
       targetCostCOP: boxData.targetCostCOP ?? null,
       withinCap: boxData.withinCap ?? null,
+      rulesVersion: boxData.rulesVersion || null,
+      profileLearningRevision: boxData.profileLearningRevision ?? null,
       reviewLog: [],
       unboxed: false
     };

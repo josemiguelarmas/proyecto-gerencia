@@ -57,7 +57,8 @@ TCB.views.profile = (() => {
               </div>
               <div class="field">
                 <label for="p-email">Correo electrónico</label>
-                <input class="input" id="p-email" type="email" value="${user.email || ''}" disabled style="background:var(--paper-2);cursor:not-allowed">
+                <input class="input" id="p-email" name="email" type="email" value="${user.email || ''}" required autocomplete="email">
+                <p class="small muted" style="margin-top:4px">Si lo cambias, te enviamos un enlace para verificar el nuevo correo.</p>
               </div>
               <div class="field" style="grid-column:1 / -1">
                 <label for="p-address">Dirección de entrega en Cali</label>
@@ -199,6 +200,16 @@ TCB.views.profile = (() => {
         <section id="subscription-section" style="background:var(--sheet);border:var(--line);padding:28px;margin-top:32px">
           <h2 class="display" style="font-size:var(--fs-xl);margin-bottom:8px">Mi suscripción</h2>
           <div id="subscription-body"><p class="small muted">Cargando…</p></div>
+        </section>
+
+        <!-- HU-16: MIS DATOS (derechos del titular, Ley 1581) -->
+        <section id="my-data-section" style="background:var(--sheet);border:var(--line);padding:28px;margin-top:32px">
+          <h2 class="display" style="font-size:var(--fs-xl);margin-bottom:8px">Mis datos</h2>
+          <p class="small muted">Puedes corregir tu nombre y correo arriba en "Información de Cuenta", descargar una copia de todos tus datos o eliminar tu cuenta.</p>
+          <div class="sub-actions">
+            <button type="button" class="btn btn--ghost" id="btn-export-data">Descargar mis datos (JSON)</button>
+            <button type="button" class="btn btn--quiet" id="btn-delete-account" style="color:var(--danger)">Eliminar mi cuenta</button>
+          </div>
         </section>
 
         <!-- HU-15: DATOS DE FACTURACIÓN -->
@@ -438,6 +449,60 @@ TCB.views.profile = (() => {
     });
   }
 
+  // HU-16: copia de los datos personales en JSON
+  async function downloadMyData() {
+    try {
+      const data = await TCB.api.account.exportData();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `mis-datos-theclothesbox-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+      TCB.state.toast('Descargamos una copia de tus datos.');
+    } catch (err) {
+      TCB.state.toast(err.data?.error || err.message, { type: 'danger' });
+    }
+  }
+
+  // HU-16: eliminar la cuenta pide la contraseña y explica qué se conserva
+  function openDeleteAccountModal() {
+    TCB.state.modal({
+      eyebrow: 'Eliminar cuenta',
+      title: '¿Eliminar tu cuenta?',
+      body: `
+        <form id="delete-account-form" class="stack" style="--stack:14px" novalidate>
+          <p class="small">Cancelamos tu suscripción y anonimizamos tu nombre, correo, perfil y medidas. <strong>No se puede deshacer.</strong></p>
+          <p class="small muted">Conservamos tus pagos y facturas porque la ley tributaria nos obliga a guardarlos.</p>
+          <div class="field">
+            <label for="delete-password">Escribe tu contraseña para confirmar</label>
+            <input class="input" id="delete-password" name="password" type="password" autocomplete="current-password" required>
+          </div>
+          <p class="error small" id="delete-error" role="alert"></p>
+          <button type="submit" class="btn btn--block" style="background:var(--danger);color:#fff">Eliminar mi cuenta</button>
+          <button type="button" class="btn btn--block btn--ghost" data-close>Conservar mi cuenta</button>
+        </form>
+      `,
+      onMount(modalEl, close) {
+        modalEl.querySelector('#delete-account-form').addEventListener('submit', async e => {
+          e.preventDefault();
+          const errEl = modalEl.querySelector('#delete-error');
+          errEl.textContent = '';
+          try {
+            const res = await TCB.api.account.remove(e.target.elements.password.value);
+            close();
+            TCB.api.auth.logout();
+            TCB.state.set({ user: null, profile: null, currentBox: null });
+            TCB.state.toast(res.message, { ms: 7000 });
+            window.location.hash = '#/';
+          } catch (err) {
+            errEl.textContent = err.data?.error || err.message;
+          }
+        });
+      }
+    });
+  }
+
   // La encuesta de salida es opcional: se puede cancelar sin responderla.
   async function openCancelModal(onDone) {
     let reasons = {};
@@ -502,6 +567,9 @@ TCB.views.profile = (() => {
       }
     });
 
+    root.querySelector('#btn-export-data')?.addEventListener('click', downloadMyData);
+    root.querySelector('#btn-delete-account')?.addEventListener('click', openDeleteAccountModal);
+
     renderSubscription(root);
     renderFiscal(root, TCB.state.get().user);
     renderStyleHistory(root, TCB.state.get().profile || {});
@@ -515,8 +583,22 @@ TCB.views.profile = (() => {
         e.preventDefault();
         const currentProfile = TCB.state.get().profile || {};
 
+        // HU-16: nombre y correo se rectifican en la cuenta (validación y correo único en el backend)
+        const name = form.name.value.trim();
+        const email = form.email.value.trim();
+        const currentUser = TCB.state.get().user;
+        const accountChanged = name !== currentUser.name || email.toLowerCase() !== currentUser.email.toLowerCase();
+        if (accountChanged) {
+          try {
+            const res = await TCB.api.account.update({ name, email });
+            TCB.state.toast(res.message, { ms: 6000 });
+          } catch (err) {
+            TCB.state.toast(err.data?.error || err.message, { type: 'danger' });
+            return;
+          }
+        }
+
         const updatedData = {
-          name: form.name.value.trim(),
           address: form.address.value.trim(),
           heightCm: Number(form.heightCm.value),
           weightKg: Number(form.weightKg.value),
@@ -533,8 +615,11 @@ TCB.views.profile = (() => {
 
         try {
           const res = await TCB.api.profile.save(updatedData);
+          await TCB.state.loadUserSession();
           TCB.state.set({ profile: res.profile });
           TCB.state.toast('Perfil y calibración antropométrica actualizados.');
+          // HU-16: el aviso de verificación debe mostrar el correo nuevo
+          if (accountChanged) TCB.app.navigate('#/perfil');
         } catch (err) {
           TCB.state.toast(err.message || 'Error al guardar perfil', { type: 'danger' });
         }

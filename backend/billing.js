@@ -125,7 +125,8 @@ function alertTeam(invoice, error) {
 // Intenta emitir la factura con el proveedor. Si falla queda PENDING_RETRY (o FAILED al agotar reintentos).
 function tryIssue(invoice, now = new Date()) {
   const user = db.findUserById(invoice.userId);
-  invoice.buyer = buyerFor(user);
+  // HU-16: si el titular eliminó su cuenta, la factura conserva su copia de los datos fiscales.
+  if (!user.deletedAt) invoice.buyer = buyerFor(user);
   invoice.attempts = (invoice.attempts || 0) + 1;
   invoice.issuedAt = now.toISOString();
   try {
@@ -301,7 +302,9 @@ function subscribe(user, { plan, paymentToken, fiscal }, now = new Date()) {
     pausedUntil: null,
     dunning: null,
     cancelledAt: null,
-    lastPaymentId: payment.id
+    lastPaymentId: payment.id,
+    // HU-17: historial de altas y bajas para el churn mensual
+    history: [...(current.history || []), { type: 'START', plan, at: now.toISOString() }]
   });
   payment.subscriptionId = sub.id;
   const profile = db.getProfile(user.id);

@@ -39,7 +39,7 @@ function authenticateRequest(req) {
   const payload = verifyToken(token);
   if (!payload || !payload.userId) return null;
   const user = db.findUserById(payload.userId);
-  if (!user) return null;
+  if (!user || user.deletedAt) return null;
   return { id: user.id, email: user.email, name: user.name, role: user.role || 'CLIENT' };
 }
 
