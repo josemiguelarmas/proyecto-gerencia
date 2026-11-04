@@ -14,12 +14,14 @@ TCB.views.admin = (() => {
     returns: [],
     feedback: [],
     outbox: [],
-    cancellationReasons: null
+    cancellationReasons: null,
+    payments: null,
+    invoices: null
   };
 
   async function loadAdminData() {
     try {
-      const [metrics, boxesRes, clientsRes, productsRes, returnsRes, feedbackRes, outboxRes, cancellationReasons] = await Promise.all([
+      const [metrics, boxesRes, clientsRes, productsRes, returnsRes, feedbackRes, outboxRes, cancellationReasons, payments, invoices] = await Promise.all([
         TCB.api.admin.metrics(),
         TCB.api.admin.boxes(),
         TCB.api.admin.clients(),
@@ -27,7 +29,9 @@ TCB.views.admin = (() => {
         TCB.api.admin.returns(),
         TCB.api.admin.feedback(),
         TCB.api.admin.outbox(),
-        TCB.api.admin.cancellationReasons()
+        TCB.api.admin.cancellationReasons(),
+        TCB.api.admin.payments(),
+        TCB.api.admin.invoices()
       ]);
 
       cachedData = {
@@ -38,7 +42,9 @@ TCB.views.admin = (() => {
         returns: returnsRes.returns || [],
         feedback: feedbackRes.ratings || [],
         outbox: outboxRes.messages || [],
-        cancellationReasons
+        cancellationReasons,
+        payments,
+        invoices
       };
       return cachedData;
     } catch (e) {
@@ -159,6 +165,12 @@ TCB.views.admin = (() => {
           <button type="button" class="btn btn--quiet admin-tab ${activeTab === 'outbox' ? 'is-active' : ''}" data-tab="outbox">
             Bandeja de Salida (${cachedData.outbox.length})
           </button>
+          <button type="button" class="btn btn--quiet admin-tab ${activeTab === 'payments' ? 'is-active' : ''}" data-tab="payments">
+            Pagos
+          </button>
+          <button type="button" class="btn btn--quiet admin-tab ${activeTab === 'invoices' ? 'is-active' : ''}" data-tab="invoices">
+            Facturación${cachedData.invoices && cachedData.invoices.openAlerts ? ` (${cachedData.invoices.openAlerts} alertas)` : ''}
+          </button>
         </div>
 
         <!-- CONTENIDO DINÁMICO DE PESTAÑA -->
@@ -183,6 +195,10 @@ TCB.views.admin = (() => {
         return renderCancellationsTab(cachedData.cancellationReasons);
       case 'outbox':
         return renderOutboxTab(cachedData.outbox);
+      case 'payments':
+        return renderPaymentsTab(cachedData.payments);
+      case 'invoices':
+        return renderInvoicesTab(cachedData.invoices);
       default:
         return renderBoxesTab(boxes);
     }
@@ -477,6 +493,131 @@ TCB.views.admin = (() => {
     `;
   }
 
+  const SUB_STATUS = { ACTIVE: 'Activa', PAUSED: 'En pausa', PAST_DUE: 'Pago pendiente', CANCELLED: 'Cancelada' };
+
+  // HU-08: comisión de la pasarela, conciliación, suscripciones y cobro recurrente manual
+  function renderPaymentsTab(data) {
+    if (!data) return '<p class="muted">Sin datos de pagos.</p>';
+    const r = data.report;
+    return `
+      <div class="stack" style="--stack:24px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap">
+          <div>
+            <h2 class="display" style="font-size:var(--fs-xl)">Pagos <span class="badge badge--dark" style="vertical-align:middle">SIMULADO</span></h2>
+            <p class="small muted">Pasarela simulada · comisión ${(r.feeRate * 100).toLocaleString('es-CO')} % por cobro aprobado.</p>
+          </div>
+          <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+            <div class="field" style="margin:0">
+              <label for="billing-date" class="small">Simular fecha (opcional)</label>
+              <input class="input" type="date" id="billing-date">
+            </div>
+            <button type="button" class="btn btn--gold btn--sm" id="btn-run-billing">Ejecutar cobro recurrente</button>
+          </div>
+        </div>
+        <div id="billing-report"></div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px">
+          ${[
+            ['Cobrado', cop(r.grossCOP)],
+            ['Comisión pasarela', cop(r.feeCOP)],
+            ['Neto', cop(r.netCOP)],
+            ['Aprobados / rechazados', `${r.approvedCount} / ${r.declinedCount}`],
+            ['Conciliados', `${r.reconciliation.OK} OK · ${r.reconciliation.PENDING} pendientes · ${r.reconciliation.MISMATCH} con diferencia`]
+          ].map(([label, value]) => `
+            <div style="background:var(--sheet);border:var(--line);padding:14px">
+              <p class="small muted">${label}</p>
+              <p class="mono" style="font-weight:700;margin-top:4px">${value}</p>
+            </div>
+          `).join('')}
+        </div>
+        ${r.byMonth.length ? `
+          <div>
+            <h3 style="font-weight:700;margin-bottom:8px">Comisión por mes</h3>
+            <table class="returns-history-table">
+              <thead><tr><th>Mes</th><th>Cobros</th><th>Bruto</th><th>Comisión</th><th>Neto</th></tr></thead>
+              <tbody>${r.byMonth.map(m => `<tr><td class="mono">${m.month}</td><td>${m.count}</td><td class="mono">${cop(m.grossCOP)}</td><td class="mono">${cop(m.feeCOP)}</td><td class="mono">${cop(m.netCOP)}</td></tr>`).join('')}</tbody>
+            </table>
+          </div>
+        ` : ''}
+        <div>
+          <h3 style="font-weight:700;margin-bottom:8px">Suscripciones (${data.subscriptions.length})</h3>
+          <div style="overflow-x:auto">
+            <table class="returns-history-table">
+              <thead><tr><th>Cliente</th><th>Plan</th><th>Estado</th><th>Tarjeta</th><th>Próximo cobro</th></tr></thead>
+              <tbody>${data.subscriptions.map(s => `
+                <tr>
+                  <td class="small">${s.userName || s.userId}</td>
+                  <td>${s.planName}${s.pendingPlanName ? ` → ${s.pendingPlanName}` : ''}</td>
+                  <td>${SUB_STATUS[s.status] || s.status}${s.dunning && s.status === 'ACTIVE' ? ' · reintentando' : ''}</td>
+                  <td class="mono small">${s.cardLast4 ? `${s.cardBrand} •••• ${s.cardLast4}` : '—'}</td>
+                  <td class="small">${s.nextChargeAt ? new Date(s.nextChargeAt).toLocaleDateString('es-CO') : '—'}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div>
+          <h3 style="font-weight:700;margin-bottom:8px">Últimos pagos</h3>
+          <div style="overflow-x:auto">
+            <table class="returns-history-table">
+              <thead><tr><th>Fecha</th><th>Cliente</th><th>Tipo</th><th>Monto</th><th>Comisión</th><th>Estado</th><th>Conciliación</th></tr></thead>
+              <tbody>${data.payments.slice(0, 30).map(p => `
+                <tr>
+                  <td class="small">${new Date(p.createdAt).toLocaleString('es-CO')}</td>
+                  <td class="small">${p.userName || p.userId}</td>
+                  <td class="mono small">${p.kind}</td>
+                  <td class="mono">${cop(p.amountCOP)}</td>
+                  <td class="mono">${cop(p.feeCOP)}</td>
+                  <td class="small">${p.status === 'APPROVED' ? 'Aprobado' : `Rechazado · ${p.reason}`}</td>
+                  <td class="small">${p.reconciliation.status}${p.reconciliation.detail ? ` · ${p.reconciliation.detail}` : ''}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // HU-15: facturas, cola de reintentos y alertas
+  function renderInvoicesTab(data) {
+    if (!data) return '<p class="muted">Sin datos de facturación.</p>';
+    const open = data.alerts.filter(a => !a.resolvedAt);
+    const STATUS = { ISSUED: 'Emitida', PENDING_RETRY: 'Pendiente de reintento', FAILED: 'Fallida' };
+    return `
+      <div class="stack" style="--stack:24px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+          <div>
+            <h2 class="display" style="font-size:var(--fs-xl)">Facturación electrónica <span class="badge badge--dark" style="vertical-align:middle">SIMULADO</span></h2>
+            <p class="small muted">Proveedor simulado · ambiente de habilitación DIAN${data.provider.failMode ? ' · <strong>INVOICING_FAIL=1 activo</strong>' : ''}.</p>
+          </div>
+          <button type="button" class="btn btn--ghost btn--sm" id="btn-run-invoice-retries">Reintentar facturas pendientes</button>
+        </div>
+        ${open.length ? `
+          <div class="banner banner--danger">
+            <p class="small"><strong>${open.length} alerta${open.length === 1 ? '' : 's'} de facturación abierta${open.length === 1 ? '' : 's'}</strong></p>
+            <ul class="small" style="margin:6px 0 0;padding-left:18px">${open.map(a => `<li>${a.message} <span class="muted">· ${new Date(a.createdAt).toLocaleString('es-CO')}</span></li>`).join('')}</ul>
+          </div>
+        ` : '<p class="small muted">Sin alertas abiertas.</p>'}
+        <div style="overflow-x:auto">
+          <table class="returns-history-table">
+            <thead><tr><th>Número</th><th>Cliente</th><th>Documento</th><th>Subtotal</th><th>IVA</th><th>Total</th><th>Estado</th></tr></thead>
+            <tbody>${data.invoices.map(i => `
+              <tr>
+                <td class="mono">${i.number}</td>
+                <td class="small">${i.buyer.name}</td>
+                <td class="mono small">${i.buyer.docType || '—'} ${i.buyer.docNumber || ''}</td>
+                <td class="mono">${cop(i.subtotalCOP)}</td>
+                <td class="mono">${cop(i.ivaCOP)}</td>
+                <td class="mono">${cop(i.totalCOP)}</td>
+                <td class="small">${STATUS[i.status] || i.status}${i.status === 'PENDING_RETRY' ? ` · intento ${i.attempts}, próximo ${new Date(i.nextRetryAt).toLocaleTimeString('es-CO')}` : ''}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
   // Correos simulados (MAIL_PROVIDER=simulated): no se envía nada real
   function renderOutboxTab(messages) {
     return `
@@ -604,6 +745,31 @@ TCB.views.admin = (() => {
         mount(container);
       }
     }
+
+    root.querySelector('#btn-run-billing')?.addEventListener('click', async () => {
+      const dateValue = root.querySelector('#billing-date').value;
+      try {
+        const res = await TCB.api.admin.runBilling(dateValue ? `${dateValue}T12:00:00` : undefined);
+        await loadAdminData();
+        rerender();
+        document.querySelector('#billing-report').innerHTML = `
+          <div class="banner banner--info"><p class="small">Cobro del ${new Date(res.ranAt).toLocaleDateString('es-CO')}: <strong>${res.approved}</strong> aprobados · ${res.failed} rechazados con reintento programado · ${res.pastDue} pasaron a pago pendiente · ${res.resumed} reanudadas tras la pausa.</p></div>
+        `;
+      } catch (e) {
+        TCB.state.toast(e.message || 'Error al ejecutar el cobro.', { type: 'danger' });
+      }
+    });
+
+    root.querySelector('#btn-run-invoice-retries')?.addEventListener('click', async () => {
+      try {
+        const res = await TCB.api.admin.runInvoiceRetries();
+        await loadAdminData();
+        rerender();
+        TCB.state.toast(`Facturas reintentadas: ${res.retried} · emitidas: ${res.issued} · siguen pendientes: ${res.stillPending}.`);
+      } catch (e) {
+        TCB.state.toast(e.message || 'Error al reintentar facturas.', { type: 'danger' });
+      }
+    });
 
     root.querySelector('#btn-import-csv')?.addEventListener('click', async () => {
       const file = root.querySelector('#csv-file').files[0];

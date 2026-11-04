@@ -83,14 +83,23 @@ TCB.api = (() => {
     },
     policy: () => request('/api/policy'),
     config: () => request('/api/config'),
+    payments: {
+      tokenize: card => request('/api/payments/tokenize', { method: 'POST', body: { card } })
+    },
     subscription: {
       get: () => request('/api/subscription'),
+      subscribe: data => request('/api/subscription/subscribe', { method: 'POST', body: data }),
+      pause: () => request('/api/subscription/pause', { method: 'POST' }),
+      resume: () => request('/api/subscription/resume', { method: 'POST' }),
+      changePlan: plan => request('/api/subscription/change-plan', { method: 'POST', body: { plan } }),
+      updatePaymentMethod: paymentToken => request('/api/subscription/payment-method', { method: 'POST', body: { paymentToken } }),
       cancel: data => request('/api/subscription/cancel', { method: 'POST', body: data })
     },
     profile: {
       get: () => request('/api/profile'),
       save: data => request('/api/profile', { method: 'PUT', body: data }),
-      history: () => request('/api/profile/history')
+      history: () => request('/api/profile/history'),
+      saveFiscal: data => request('/api/profile/fiscal', { method: 'PUT', body: data })
     },
     quiz: {
       progress: () => request('/api/quiz/progress'),
@@ -130,7 +139,11 @@ TCB.api = (() => {
       feedback: () => request('/api/admin/feedback'),
       outbox: () => request('/api/admin/outbox'),
       runReviewReminders: () => request('/api/admin/jobs/review-reminders', { method: 'POST' }),
-      cancellationReasons: () => request('/api/admin/cancellation-reasons')
+      cancellationReasons: () => request('/api/admin/cancellation-reasons'),
+      payments: () => request('/api/admin/payments'),
+      runBilling: now => request('/api/admin/jobs/recurring-billing', { method: 'POST', body: { now } }),
+      invoices: () => request('/api/admin/invoices'),
+      runInvoiceRetries: now => request('/api/admin/jobs/invoice-retries', { method: 'POST', body: { now } })
     }
   };
 })();

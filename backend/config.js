@@ -59,5 +59,19 @@ module.exports = {
     talla: 'Talla',
     tiempo: 'Tiempo',
     otro: 'Otro'
-  }
+  },
+  // HU-08: reintentos del cobro recurrente, en días desde el primer fallo ("1,3,5").
+  PAYMENT_RETRY_DAYS: (process.env.PAYMENT_RETRY_DAYS || '1,3,5').split(',').map(Number).filter(n => n > 0),
+  PAYMENT_WEBHOOK_SECRET: process.env.PAYMENT_WEBHOOK_SECRET || 'whsec_simulado_desarrollo',
+  BILLING_INTERVAL_MS: 60 * 60 * 1000,
+  // HU-12: día del mes desde el que un cambio de plan ya no alcanza la próxima caja.
+  SUBSCRIPTION_CUTOFF_DAY: Number(process.env.SUBSCRIPTION_CUTOFF_DAY) || 25,
+  PAUSE_MONTHS: 1,
+  // HU-15: facturación electrónica. El precio del plan incluye IVA del 19 % (supuesto pendiente de validar con contador).
+  IVA_RATE: 0.19,
+  INVOICE_PREFIX: 'SETT',
+  INVOICE_RETRY_MINUTES: [5, 30, 120],
+  TEAM_ALERT_EMAIL: 'operaciones@theclothesbox.co',
+  ISSUER: { name: 'The Clothes Box S.A.S. (SIMULADO)', nit: '900000000-0', city: 'Cali' },
+  FISCAL_DOC_TYPES: { CC: 'Cédula de ciudadanía', CE: 'Cédula de extranjería', NIT: 'NIT', PA: 'Pasaporte' }
 };

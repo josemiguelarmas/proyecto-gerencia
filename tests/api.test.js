@@ -18,6 +18,8 @@ const { db } = require('../backend/database');
 const { curateBox, scoreProduct } = require('../backend/engine');
 const { stockInSize } = require('../backend/catalog');
 const config = require('../backend/config');
+const billing = require('../backend/billing');
+const payments = require('../backend/payments');
 
 const TEST_PORT = 3199;
 
@@ -66,6 +68,22 @@ function validRegistration(email, overrides = {}) {
     policyVersion: 'v1.0',
     ...overrides
   };
+}
+
+const CARD_OK = '4242 4242 4242 4242';
+const CARD_DECLINE = '4000 0000 0000 0002';
+const CARD_FIRST_ONLY = '4000 0000 0000 0341';
+const FISCAL = { docType: 'CC', docNumber: '1144123456', address: 'Calle 5 # 38-20, San Fernando', city: 'Cali' };
+
+async function tokenizeCard(number, token) {
+  const res = await request('POST', '/api/payments/tokenize', { card: { number, expMonth: 12, expYear: 2030, cvc: '123', holder: 'Usuario Prueba' } }, token);
+  return res.body.token;
+}
+
+// HU-08: desde el Sprint 2 la suscripción nace con el primer pago aprobado.
+async function subscribeWith(token, { card = CARD_OK, plan = 'esencial', fiscal = FISCAL } = {}) {
+  const paymentToken = await tokenizeCard(card, token);
+  return request('POST', '/api/subscription/subscribe', { plan, paymentToken, fiscal }, token);
 }
 
 function lastMailTo(messages, to, type) {
@@ -236,6 +254,7 @@ async function runTests() {
 
     await runSprint2Tests({ token, newToken, newEmail, adminToken, deliveredBox: deliveredBoxRes.body.box });
     await runPrompt2Tests({ token, adminToken, stylistToken, deliveredBox: deliveredBoxRes.body.box });
+    await runPrompt3Tests({ adminToken, stylistToken });
 
     console.log('\n======================================================');
     console.log('¡TODAS LAS PRUEBAS DE BACKEND Y ROLES PASARON CON ÉXITO!');
@@ -382,6 +401,7 @@ async function runSprint2Tests({ token, newToken, newEmail, adminToken, delivere
 
   // 26. HU-13: cancelación con encuesta y conteo agregado
   const before = (await request('GET', '/api/admin/cancellation-reasons', null, adminToken)).body;
+  assert.strictEqual((await subscribeWith(newToken)).status, 201);
   const cancelRes = await request('POST', '/api/subscription/cancel', { reason: 'precio', comment: 'Está caro para mí' }, newToken);
   assert.strictEqual(cancelRes.status, 200);
   assert.strictEqual(cancelRes.body.subscription.status, 'CANCELLED');
@@ -398,6 +418,7 @@ async function runSprint2Tests({ token, newToken, newEmail, adminToken, delivere
   const silentEmail = `silent_${Date.now()}@test.com`;
   const silentReg = await request('POST', '/api/auth/register', validRegistration(silentEmail));
   await request('PUT', '/api/profile', { styles: ['minimal'], occasions: ['clase'], fit: 'regular', line: 'u', plan: 'estilo', measures: { height: 170, weight: 65, build: 'media', usual: 'M' } }, silentReg.body.token);
+  await subscribeWith(silentReg.body.token, { plan: 'estilo' });
   const silentCancel = await request('POST', '/api/subscription/cancel', {}, silentReg.body.token);
   assert.strictEqual(silentCancel.status, 200);
   assert.strictEqual(silentCancel.body.cancellation.reason, null);
@@ -423,6 +444,7 @@ async function newClient(profileOverrides = {}) {
   const reg = await request('POST', '/api/auth/register', validRegistration(email));
   const tok = reg.body.token;
   await request('PUT', '/api/profile', { ...syntheticProfiles()[0], ...profileOverrides }, tok);
+  await subscribeWith(tok, { plan: profileOverrides.plan || syntheticProfiles()[0].plan || 'esencial' });
   const current = await request('GET', '/api/boxes/current', null, tok);
   return { email, token: tok, boxId: current.body.box.id, userId: reg.body.user.id };
 }
@@ -625,6 +647,260 @@ async function runPrompt2Tests({ token, adminToken, stylistToken, deliveredBox }
   const weighted = scoreProduct({ styles: ['minimal'], occasions: [], fit: 'x', styleWeights: { retro: 1 } }, retroProduct).score;
   assert.ok(weighted > plain);
   console.log('✓ 42. HU-03: los pesos del juego de estilos ocultos suben el puntaje de prendas afines');
+}
+
+const HOUR = 3600000;
+const later = (iso, ms = HOUR) => new Date(new Date(iso).getTime() + ms);
+
+async function outboxFor(adminToken, to, type) {
+  const messages = (await request('GET', '/api/admin/outbox', null, adminToken)).body.messages;
+  return messages.filter(m => m.to === to && (!type || m.type === type));
+}
+
+async function runPrompt3Tests({ adminToken, stylistToken }) {
+  console.log('\n--- SPRINT 2 · PROMPT 3 ---');
+
+  // 43. HU-08: la tarjeta se tokeniza y nunca se guarda completa ni con CVV
+  const a = await newClientWithoutPlan();
+  assert.strictEqual((await request('POST', '/api/payments/tokenize', { card: { number: '4242 4242 4242 4241', expMonth: 12, expYear: 2030, cvc: '123', holder: 'X' } }, a.token)).status, 400, 'Luhn inválido');
+  assert.strictEqual((await request('POST', '/api/payments/tokenize', { card: { number: CARD_OK, expMonth: 1, expYear: 2020, cvc: '123', holder: 'X' } }, a.token)).status, 400, 'Vencida');
+  const tok = await request('POST', '/api/payments/tokenize', { card: { number: CARD_OK, expMonth: 12, expYear: 2030, cvc: '987', holder: 'Ana Prueba' } }, a.token);
+  assert.strictEqual(tok.status, 200);
+  assert.deepStrictEqual([tok.body.brand, tok.body.last4], ['Visa', '4242']);
+  assert.ok(!tok.body.token.includes('4242424242424242'));
+  console.log('✓ 43. HU-08: tokenización simulada valida la tarjeta y devuelve solo token, marca y últimos 4');
+
+  // 44. HU-08: suscripción Esencial aprobada con 4242, confirmación en la bandeja de salida
+  const okSub = await request('POST', '/api/subscription/subscribe', { plan: 'esencial', paymentToken: tok.body.token, fiscal: FISCAL }, a.token);
+  assert.strictEqual(okSub.status, 201);
+  assert.strictEqual(okSub.body.subscription.status, 'ACTIVE');
+  assert.strictEqual(okSub.body.subscription.paymentToken, undefined, 'El token no se expone al cliente');
+  assert.strictEqual(okSub.body.payment.amountCOP, 129900);
+  assert.strictEqual(okSub.body.payment.feeCOP, Math.round(129900 * 0.035));
+  assert.strictEqual(okSub.body.payment.reconciliation.status, 'OK', 'El webhook simulado concilia el cobro');
+  const stored = db.data.subscriptions.find(x => x.userId === a.userId);
+  assert.ok(stored.paymentToken && stored.cardLast4 === '4242' && stored.nextChargeAt);
+  const dbText = fs.readFileSync(process.env.TCB_DB_FILE, 'utf8');
+  assert.ok(!dbText.includes('4242424242424242') && !dbText.includes('"987"'), 'Ni número completo ni CVV en la base');
+  assert.strictEqual((await outboxFor(adminToken, a.email, 'SUBSCRIPTION_CONFIRMED')).length, 1);
+  assert.strictEqual((await subscribeWith(a.token)).status, 409, 'No se suscribe dos veces');
+  console.log('✓ 44. HU-08: cobro de COP 129.900 aprobado, suscripción ACTIVE y confirmación enviada');
+
+  // 45. HU-08: tarjeta rechazada responde el motivo y no activa
+  const b = await newClientWithoutPlan();
+  const declined = await subscribeWith(b.token, { card: CARD_DECLINE, plan: 'estilo' });
+  assert.strictEqual(declined.status, 402);
+  assert.strictEqual(declined.body.reason, 'Fondos insuficientes');
+  assert.ok(/rechazado/.test(declined.body.error));
+  assert.strictEqual((await request('GET', '/api/subscription', null, b.token)).body.subscription.status, 'NONE');
+  assert.strictEqual(db.getPayments(b.userId)[0].status, 'DECLINED');
+  console.log('✓ 45. HU-08: tarjeta 0002 rechazada con motivo y la suscripción no se activa');
+
+  // 46. HU-08: 0341 aprueba el primero y falla los recurrentes → reintentos a 1, 3 y 5 días → PAST_DUE
+  const c = await newClientWithoutPlan();
+  assert.strictEqual((await subscribeWith(c.token, { card: CARD_FIRST_ONLY, plan: 'estilo' })).body.payment.amountCOP, 199900);
+  const subC = () => db.data.subscriptions.find(x => x.userId === c.userId);
+  const due = subC().nextChargeAt;
+  const t0 = later(due);
+  const run0 = await request('POST', '/api/admin/jobs/recurring-billing', { now: t0.toISOString() }, adminToken);
+  assert.strictEqual(run0.status, 200);
+  assert.ok(run0.body.results.some(r => r.subscriptionId === subC().id && r.result === 'FAILED_RETRY_SCHEDULED'));
+  assert.strictEqual(subC().status, 'ACTIVE');
+  assert.strictEqual(new Date(subC().dunning.nextRetryAt).getTime(), t0.getTime() + 86400000, 'Primer reintento a 1 día');
+  assert.strictEqual((await outboxFor(adminToken, c.email, 'PAYMENT_RETRY_SCHEDULED')).length, 1);
+  billing.runRecurringBilling(later(t0.toISOString(), 12 * HOUR));
+  assert.strictEqual(subC().dunning.attempts, 0, 'No reintenta antes de tiempo');
+  billing.runRecurringBilling(later(t0.toISOString(), 24 * HOUR));
+  assert.strictEqual(new Date(subC().dunning.nextRetryAt).getTime(), t0.getTime() + 3 * 86400000, 'Segundo reintento a 3 días');
+  billing.runRecurringBilling(later(t0.toISOString(), 72 * HOUR));
+  billing.runRecurringBilling(later(t0.toISOString(), 120 * HOUR));
+  assert.strictEqual(subC().status, 'PAST_DUE');
+  billing.runRecurringBilling(later(t0.toISOString(), 240 * HOUR));
+  const kinds = db.getPayments(c.userId).reverse().map(p => `${p.kind}:${p.status}`);
+  assert.deepStrictEqual(kinds, ['INITIAL:APPROVED', 'RECURRING:DECLINED', 'RETRY:DECLINED', 'RETRY:DECLINED', 'RETRY:DECLINED'], 'Un cobro por intento, sin duplicados');
+  assert.strictEqual((await outboxFor(adminToken, c.email, 'PAYMENT_PAST_DUE')).length, 1);
+  const fixed = await request('POST', '/api/subscription/payment-method', { paymentToken: await tokenizeCard(CARD_OK, c.token) }, c.token);
+  assert.strictEqual(fixed.status, 200);
+  assert.strictEqual(fixed.body.subscription.status, 'ACTIVE');
+  assert.strictEqual(fixed.body.subscription.cardLast4, '4242');
+  assert.ok(new Date(subC().nextChargeAt) > new Date(due), 'Regulariza y avanza el siguiente cobro');
+  console.log('✓ 46. HU-08: fallo recurrente con reintentos a 1, 3 y 5 días, PAST_DUE, aviso y regularización con otra tarjeta');
+
+  // 47. HU-08: webhook con firma HMAC, conciliación y reporte de comisión
+  const target = db.getPayments(a.userId)[0];
+  const forged = JSON.stringify({ type: 'charge.succeeded', data: { chargeId: target.providerChargeId, status: 'APPROVED', amountCOP: 1 } });
+  const badSig = await rawRequest('/api/webhooks/payments', forged, 'f'.repeat(64));
+  assert.strictEqual(badSig.status, 401);
+  const signed = payments.buildWebhook({ chargeId: target.providerChargeId, status: 'APPROVED', amountCOP: 1, feeCOP: 0 });
+  const mismatch = await rawRequest('/api/webhooks/payments', signed.rawBody, signed.signature);
+  assert.strictEqual(mismatch.status, 200);
+  assert.strictEqual(mismatch.body.reconciliation.status, 'MISMATCH');
+  const good = payments.buildWebhook({ chargeId: target.providerChargeId, status: 'APPROVED', amountCOP: target.amountCOP, feeCOP: target.feeCOP });
+  assert.strictEqual((await rawRequest('/api/webhooks/payments', good.rawBody, good.signature)).body.reconciliation.status, 'OK');
+  const report = await request('GET', '/api/admin/payments', null, adminToken);
+  assert.strictEqual(report.status, 200);
+  const approved = db.getPayments().filter(p => p.status === 'APPROVED');
+  assert.strictEqual(report.body.report.feeCOP, approved.reduce((acc, p) => acc + p.feeCOP, 0));
+  assert.strictEqual(report.body.report.grossCOP - report.body.report.feeCOP, report.body.report.netCOP);
+  assert.ok(report.body.report.reconciliation.OK >= 1);
+  assert.strictEqual((await request('GET', '/api/admin/payments', null, a.token)).status, 403);
+  console.log(`✓ 47. HU-08: webhook firmado (401 si la firma falla), conciliación y comisión 3,5 % = COP ${report.body.report.feeCOP}`);
+
+  // 48. HU-12: matriz de transiciones válidas e inválidas, incluido PAST_DUE
+  const expected = {
+    subscribe: ['NONE', 'CANCELLED'],
+    pause: ['ACTIVE'],
+    resume: ['PAUSED'],
+    changePlan: ['ACTIVE', 'PAUSED'],
+    cancel: ['ACTIVE', 'PAUSED', 'PAST_DUE'],
+    updatePaymentMethod: ['ACTIVE', 'PAUSED', 'PAST_DUE'],
+    chargeFailed: ['ACTIVE']
+  };
+  ['NONE', 'ACTIVE', 'PAUSED', 'PAST_DUE', 'CANCELLED'].forEach(status => {
+    Object.entries(expected).forEach(([action, from]) => {
+      assert.strictEqual(billing.canTransition(status, action), from.includes(status), `${status} --${action}-->`);
+    });
+  });
+  const pd = await newClientWithoutPlan();
+  await subscribeWith(pd.token);
+  db.saveSubscription(pd.userId, { status: 'PAST_DUE' });
+  assert.strictEqual((await request('POST', '/api/subscription/pause', {}, pd.token)).status, 409, 'PAST_DUE no se pausa');
+  assert.strictEqual((await request('POST', '/api/subscription/change-plan', { plan: 'estilo' }, pd.token)).status, 409, 'PAST_DUE no cambia de plan');
+  assert.strictEqual((await request('POST', '/api/subscription/resume', {}, pd.token)).status, 409);
+  assert.strictEqual((await request('POST', '/api/subscription/cancel', {}, pd.token)).status, 200, 'PAST_DUE sí se cancela');
+  assert.strictEqual((await request('POST', '/api/subscription/pause', {}, pd.token)).status, 409, 'CANCELLED no se pausa');
+  assert.strictEqual((await request('POST', '/api/subscription/resume', {}, b.token)).status, 409, 'NONE no se reanuda');
+  console.log('✓ 48. HU-12: matriz de 5 estados × 7 acciones y transiciones inválidas por API responden 409');
+
+  // 49. HU-12: pausar un mes no cobra ni despacha y se reanuda sola
+  const p = await newClient();
+  await request('POST', `/api/stylist/boxes/${p.boxId}/approve`, { reason: 'Ok' }, stylistToken);
+  const skipped = db.data.subscriptions.find(x => x.userId === p.userId).nextChargeAt;
+  const paused = await request('POST', '/api/subscription/pause', {}, p.token);
+  assert.strictEqual(paused.status, 200);
+  assert.strictEqual(paused.body.subscription.status, 'PAUSED');
+  assert.strictEqual(paused.body.subscription.pausedUntil, billing.addMonths(skipped, 1).toISOString());
+  assert.strictEqual((await request('POST', '/api/subscription/pause', {}, p.token)).status, 409);
+  assert.strictEqual((await request('POST', '/api/boxes/simulate-step', {}, p.token)).status, 409, 'En pausa no despacha');
+  const batch = await request('POST', '/api/admin/boxes/generate-batch', {}, adminToken);
+  assert.ok(batch.body.skipped.some(sk => sk.userId === p.userId && sk.reason === 'Suscripción en pausa'));
+  const before = db.getPayments(p.userId).length;
+  billing.runRecurringBilling(later(skipped));
+  assert.strictEqual(db.getPayments(p.userId).length, before, 'No cobra el mes en pausa');
+  const resumeRun = billing.runRecurringBilling(later(paused.body.subscription.pausedUntil));
+  assert.ok(resumeRun.results.some(r => r.result === 'RESUMED'));
+  assert.strictEqual(db.getSubscription(p.userId).status, 'ACTIVE');
+  assert.strictEqual(db.getPayments(p.userId)[0].kind, 'RECURRING', 'Al reanudar vuelve a cobrar');
+  assert.strictEqual((await request('POST', '/api/subscription/resume', {}, p.token)).status, 409, 'Activa no se reanuda');
+  console.log('✓ 49. HU-12: pausa de 1 mes sin cobro ni despacho y reanudación automática');
+
+  // 50. HU-12: cambio de plan antes y después del día de corte
+  const before25 = new Date(2026, 10, 10, 12);
+  const after25 = new Date(2026, 10, 26, 12);
+  const pc = await newClientWithoutPlan();
+  await subscribeWith(pc.token, { plan: 'esencial' });
+  assert.strictEqual((await request('POST', '/api/subscription/change-plan', { plan: 'esencial' }, pc.token)).status, 409, 'Mismo plan');
+  const early = billing.changePlan(pc.userId, 'estilo', before25);
+  assert.strictEqual(early.subscription.plan, 'estilo', 'Antes del corte aplica desde la próxima caja');
+  assert.strictEqual(db.getProfile(pc.userId).plan, 'estilo', 'El motor arma la próxima caja con el plan nuevo');
+  const nextDue = early.subscription.nextChargeAt;
+  const late = billing.changePlan(pc.userId, 'esencial', after25);
+  assert.strictEqual(late.subscription.plan, 'estilo', 'Después del corte la próxima caja sigue igual');
+  assert.strictEqual(late.subscription.pendingPlan, 'esencial');
+  assert.strictEqual(late.subscription.pendingPlanFrom, billing.addMonths(nextDue, 1).toISOString());
+  billing.runRecurringBilling(later(nextDue));
+  assert.strictEqual(db.getPayments(pc.userId)[0].amountCOP, 199900, 'El ciclo siguiente cobra el plan vigente');
+  const followingDue = db.getSubscription(pc.userId).nextChargeAt;
+  billing.runRecurringBilling(later(followingDue));
+  assert.strictEqual(db.getSubscription(pc.userId).plan, 'esencial');
+  assert.strictEqual(db.getPayments(pc.userId)[0].amountCOP, 129900, 'Un ciclo después aplica el plan nuevo');
+  const apiChange = await request('POST', '/api/subscription/change-plan', { plan: 'estilo' }, pc.token);
+  assert.strictEqual(apiChange.status, 200);
+  assert.strictEqual(apiChange.body.effect.beforeCutoff, new Date().getDate() < config.SUBSCRIPTION_CUTOFF_DAY);
+  console.log('✓ 50. HU-12: cambio de plan antes del día 25 aplica en la próxima caja; después, en el ciclo siguiente');
+
+  // 51. HU-12: cancelar detiene los cobros futuros, también desde la pausa
+  const cx = await newClientWithoutPlan();
+  await subscribeWith(cx.token);
+  await request('POST', '/api/subscription/pause', {}, cx.token);
+  const cxDue = db.getSubscription(cx.userId).nextChargeAt;
+  const cancelled = await request('POST', '/api/subscription/cancel', { reason: 'precio' }, cx.token);
+  assert.strictEqual(cancelled.status, 200);
+  assert.strictEqual(cancelled.body.subscription.nextChargeAt, null);
+  const paysBefore = db.getPayments(cx.userId).length;
+  billing.runRecurringBilling(later(cxDue, 40 * 86400000));
+  assert.strictEqual(db.getPayments(cx.userId).length, paysBefore, 'Sin cobros después de cancelar');
+  assert.strictEqual((await subscribeWith(cx.token)).status, 201, 'Puede volver a suscribirse');
+  console.log('✓ 51. HU-12: cancelar (incluso en pausa) detiene los cobros y permite volver a suscribirse');
+
+  // 52. HU-15: factura tras cada cobro exitoso con consecutivo, datos fiscales e IVA
+  const invoice = db.getInvoices(a.userId)[0];
+  assert.strictEqual(invoice.status, 'ISSUED');
+  assert.ok(/^SETT-\d+$/.test(invoice.number) && invoice.simulated === true && invoice.cufe.length === 96);
+  assert.strictEqual(invoice.subtotalCOP + invoice.ivaCOP, 129900);
+  assert.strictEqual(invoice.ivaCOP, 129900 - Math.round(129900 / 1.19));
+  assert.deepStrictEqual([invoice.buyer.docType, invoice.buyer.docNumber, invoice.buyer.city], ['CC', FISCAL.docNumber, 'Cali']);
+  const consecutives = db.getInvoices().map(i => i.consecutive).sort((x, y) => x - y);
+  assert.deepStrictEqual(consecutives, consecutives.map((_, i) => i + 1), 'Consecutivo sin saltos');
+  assert.strictEqual(db.getInvoices().length, db.getPayments().filter(x => x.status === 'APPROVED').length, 'Una factura por cobro aprobado');
+  const invoiceMail = (await outboxFor(adminToken, a.email, 'INVOICE'))[0];
+  assert.ok(invoiceMail.body.includes(invoice.number) && /SIMULADO/.test(invoiceMail.body) && invoiceMail.body.includes('IVA 19 %'));
+  const noFiscal = await newClientWithoutPlan();
+  const missing = await request('POST', '/api/subscription/subscribe', { plan: 'esencial', paymentToken: await tokenizeCard(CARD_OK, noFiscal.token) }, noFiscal.token);
+  assert.strictEqual(missing.status, 400, 'Sin datos fiscales no cobra');
+  assert.strictEqual((await request('PUT', '/api/profile/fiscal', { ...FISCAL, docNumber: '12' }, noFiscal.token)).status, 400);
+  assert.strictEqual((await request('PUT', '/api/profile/fiscal', FISCAL, noFiscal.token)).status, 200);
+  console.log(`✓ 52. HU-15: factura ${invoice.number} SIMULADO con IVA 19 %, datos fiscales y envío a la bandeja`);
+
+  // 53. HU-15: si el proveedor falla, la factura queda PENDING_RETRY, alerta al equipo y se reintenta
+  process.env.INVOICING_FAIL = '1';
+  const f = await newClientWithoutPlan();
+  const failSub = await subscribeWith(f.token);
+  assert.strictEqual(failSub.status, 201, 'El cobro no depende de la factura');
+  const pending = db.getInvoices(f.userId)[0];
+  assert.strictEqual(pending.status, 'PENDING_RETRY');
+  assert.ok(pending.nextRetryAt && /no respondió/.test(pending.lastError));
+  const invoicesAdmin = await request('GET', '/api/admin/invoices', null, adminToken);
+  assert.ok(invoicesAdmin.body.alerts.some(al => al.refId === pending.id && !al.resolvedAt));
+  assert.ok((await outboxFor(adminToken, config.TEAM_ALERT_EMAIL, 'INVOICE_ALERT')).some(m => m.body.includes(pending.number)));
+  assert.strictEqual(billing.runInvoiceRetries(new Date()).retried, 0, 'Respeta el tiempo de espera');
+  billing.runInvoiceRetries(later(pending.nextRetryAt, 1000));
+  assert.strictEqual(pending.status, 'PENDING_RETRY');
+  assert.strictEqual(pending.attempts, 2);
+  delete process.env.INVOICING_FAIL;
+  const retry = await request('POST', '/api/admin/jobs/invoice-retries', { now: later(pending.nextRetryAt, 1000).toISOString() }, adminToken);
+  assert.strictEqual(retry.body.issued, 1);
+  assert.strictEqual(pending.status, 'ISSUED');
+  assert.ok(db.getAlerts().find(al => al.refId === pending.id).resolvedAt, 'La alerta se cierra');
+  assert.strictEqual((await outboxFor(adminToken, f.email, 'INVOICE')).length, 1);
+  process.env.INVOICING_FAIL = '1';
+  const g = await newClientWithoutPlan();
+  await subscribeWith(g.token);
+  const doomed = db.getInvoices(g.userId)[0];
+  [1, 2, 3].forEach(() => billing.runInvoiceRetries(later(doomed.nextRetryAt || new Date().toISOString(), 1000)));
+  assert.strictEqual(doomed.status, 'FAILED', 'Agotados los reintentos queda FAILED con la alerta abierta');
+  assert.ok(db.getAlerts().some(al => al.refId === doomed.id && !al.resolvedAt));
+  delete process.env.INVOICING_FAIL;
+  console.log('✓ 53. HU-15: INVOICING_FAIL=1 deja la factura PENDING_RETRY, alerta en el panel y se emite al reintentar');
+}
+
+async function newClientWithoutPlan() {
+  const email = `p3_${Date.now()}_${Math.random().toString(16).slice(2, 6)}@test.com`;
+  const reg = await request('POST', '/api/auth/register', validRegistration(email));
+  await request('PUT', '/api/profile', syntheticProfiles()[0], reg.body.token);
+  return { email, token: reg.body.token, userId: reg.body.user.id };
+}
+
+function rawRequest(path, rawBody, signature) {
+  return new Promise((resolve, reject) => {
+    const req = http.request({ hostname: 'localhost', port: TEST_PORT, path, method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Signature': signature } }, res => {
+      let body = '';
+      res.on('data', chunk => (body += chunk));
+      res.on('end', () => resolve({ status: res.statusCode, body: JSON.parse(body) }));
+    });
+    req.on('error', reject);
+    req.end(rawBody);
+  });
 }
 
 runTests().catch(err => {

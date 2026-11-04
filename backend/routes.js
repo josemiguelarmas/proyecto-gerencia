@@ -5,6 +5,8 @@ const { importCatalogCsv, stockInSize } = require('./catalog');
 const config = require('./config');
 const mail = require('./mail');
 const { runReviewReminders } = require('./jobs');
+const billing = require('./billing');
+const payments = require('./payments');
 
 // Edad cumplida a partir de una fecha YYYY-MM-DD. Devuelve null si la fecha no es válida.
 function ageFromBirthDate(birthDate, now = new Date()) {
@@ -24,7 +26,8 @@ function publicUser(user) {
     name: user.name,
     email: user.email,
     role: user.role || 'CLIENT',
-    emailVerified: user.emailVerified
+    emailVerified: user.emailVerified,
+    fiscal: user.fiscal || null
   };
 }
 
@@ -122,6 +125,34 @@ function sendJson(res, statusCode, data) {
   res.end(JSON.stringify(data));
 }
 
+// HU-08: el webhook se verifica con HMAC sobre el cuerpo exacto, sin reinterpretarlo.
+function readRawBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', chunk => {
+      body += chunk;
+      if (body.length > 1e6) {
+        req.destroy();
+        reject(new Error('Payload too large'));
+      }
+    });
+    req.on('end', () => resolve(body));
+    req.on('error', reject);
+  });
+}
+
+// Fecha opcional para simular el paso del tiempo en los jobs del administrador.
+function parseNow(value) {
+  if (!value) return new Date();
+  const d = new Date(value);
+  if (isNaN(d)) {
+    const err = new Error('La fecha de simulación no es válida (usa AAAA-MM-DD).');
+    err.status = 400;
+    throw err;
+  }
+  return d;
+}
+
 function parseJsonBody(req) {
   return new Promise((resolve, reject) => {
     let body = '';
@@ -166,8 +197,20 @@ async function handleApiRequest(req, res, pathname) {
     if (pathname === '/api/config' && req.method === 'GET') {
       return sendJson(res, 200, {
         minAge: config.MIN_AGE,
-        cancellationReasons: config.CANCELLATION_REASONS
+        cancellationReasons: config.CANCELLATION_REASONS,
+        plans: Object.fromEntries(Object.entries(config.PLANS).map(([k, p]) => [k, { name: p.name, priceCOP: p.priceCOP, items: p.items }])),
+        cutoffDay: config.SUBSCRIPTION_CUTOFF_DAY,
+        fiscalDocTypes: config.FISCAL_DOC_TYPES,
+        paymentProvider: payments.name,
+        testCards: payments.name === 'simulated' ? payments.testCards : []
       });
+    }
+
+    // HU-08: webhook de la pasarela, firmado con HMAC en la cabecera X-Signature
+    if (pathname === '/api/webhooks/payments' && req.method === 'POST') {
+      const rawBody = await readRawBody(req);
+      const result = billing.processPaymentWebhook(rawBody, req.headers['x-signature']);
+      return sendJson(res, result.status, result.body);
     }
 
     if (pathname === '/api/policy' && req.method === 'GET') {
@@ -458,11 +501,14 @@ async function handleApiRequest(req, res, pathname) {
         const generated = [];
         const skipped = [];
         db.data.users.filter(u => (u.role || 'CLIENT') === 'CLIENT').forEach(user => {
-          // TODO HU-08: getSubscription aún deriva ACTIVE del perfil completo; con pagos reales usará la colección subscriptions.
+          // HU-08/HU-12: solo suscripciones pagadas y al día; en pausa o en mora no reciben caja.
           const sub = db.getSubscription(user.id);
           const profile = db.getProfile(user.id);
           if (sub.status !== 'ACTIVE' || !profile || !profile.done) {
-            return skipped.push({ userId: user.id, reason: 'Sin suscripción activa' });
+            return skipped.push({ userId: user.id, reason: sub.status === 'PAUSED' ? 'Suscripción en pausa' : sub.status === 'PAST_DUE' ? 'Pago pendiente' : 'Sin suscripción activa' });
+          }
+          if (sub.dunning) {
+            return skipped.push({ userId: user.id, reason: 'Cobro en reintento' });
           }
           const boxes = db.getUserBoxes(user.id);
           const latest = boxes[0];
@@ -490,6 +536,37 @@ async function handleApiRequest(req, res, pathname) {
           generated,
           skipped
         });
+      }
+
+      // HU-08: pagos, comisión de la pasarela, conciliación y suscripciones
+      if (pathname === '/api/admin/payments' && req.method === 'GET') {
+        const users = Object.fromEntries(db.data.users.map(u => [u.id, u]));
+        const withUser = item => ({ ...item, userName: users[item.userId]?.name, userEmail: users[item.userId]?.email });
+        return sendJson(res, 200, {
+          report: billing.paymentsReport(),
+          payments: db.getPayments().map(withUser),
+          subscriptions: db.getAllSubscriptions().map(s => withUser(billing.publicSubscription(s)))
+        });
+      }
+
+      if (pathname === '/api/admin/jobs/recurring-billing' && req.method === 'POST') {
+        const { now } = await parseJsonBody(req);
+        return sendJson(res, 200, { success: true, ...billing.runRecurringBilling(parseNow(now)) });
+      }
+
+      // HU-15: facturas, cola de reintentos y alertas para el equipo
+      if (pathname === '/api/admin/invoices' && req.method === 'GET') {
+        return sendJson(res, 200, {
+          invoices: db.getInvoices(),
+          alerts: db.getAlerts(),
+          openAlerts: db.getAlerts().filter(a => !a.resolvedAt).length,
+          provider: { name: 'simulated', environment: 'HABILITACION', failMode: process.env.INVOICING_FAIL === '1' }
+        });
+      }
+
+      if (pathname === '/api/admin/jobs/invoice-retries' && req.method === 'POST') {
+        const { now } = await parseJsonBody(req);
+        return sendJson(res, 200, { success: true, ...billing.runInvoiceRetries(parseNow(now)) });
       }
 
       // Admin Boxes (Full visibility including items even in PREPARING or SHIPPED)
@@ -693,6 +770,10 @@ async function handleApiRequest(req, res, pathname) {
       }
 
       if (currentBox.status === 'APPROVED') {
+        // HU-12: en pausa no se despacha la caja de ese mes
+        if (db.getSubscription(authUser.id).status === 'PAUSED') {
+          return sendJson(res, 409, { error: 'Tu suscripción está en pausa: esta caja no se despacha hasta que reanudes.' });
+        }
         nextStatus = 'PREPARING';
       } else if (currentBox.status === 'CREATED' || currentBox.status === 'PREPARING') {
         nextStatus = 'SHIPPED';
@@ -990,21 +1071,79 @@ async function handleApiRequest(req, res, pathname) {
       });
     }
 
-    // Suscripción actual (mínima; HU-08/HU-12 la amplían)
+    // HU-08/HU-12: suscripción actual con sus pagos y facturas
     if (pathname === '/api/subscription' && req.method === 'GET') {
-      return sendJson(res, 200, { subscription: db.getSubscription(authUser.id) });
+      const sub = db.getSubscription(authUser.id);
+      return sendJson(res, 200, {
+        subscription: billing.publicSubscription(sub),
+        planChange: sub.status === 'ACTIVE' || sub.status === 'PAUSED' ? billing.planChangeEffect(sub) : null,
+        payments: db.getPayments(authUser.id).slice(0, 12),
+        invoices: db.getInvoices(authUser.id).slice(0, 12)
+      });
+    }
+
+    // HU-08: tokenización simulada. En una pasarela real la tarjeta va del navegador a la
+    // pasarela; aquí el número y el CVV solo se validan y nunca se guardan ni se registran.
+    if (pathname === '/api/payments/tokenize' && req.method === 'POST') {
+      const { card } = await parseJsonBody(req);
+      const result = payments.tokenize(card || {});
+      return sendJson(res, 200, result);
+    }
+
+    if (pathname === '/api/subscription/subscribe' && req.method === 'POST') {
+      const { plan, paymentToken, fiscal } = await parseJsonBody(req);
+      try {
+        const result = billing.subscribe(db.findUserById(authUser.id), { plan, paymentToken, fiscal });
+        return sendJson(res, 201, {
+          success: true,
+          message: `¡Listo! Tu plan ${config.PLANS[plan].name} está activo. Pago SIMULADO aprobado.`,
+          subscription: billing.publicSubscription(result.subscription),
+          payment: result.payment,
+          invoice: result.invoice
+        });
+      } catch (err) {
+        if (err.status === 402) return sendJson(res, 402, { error: err.message, reason: err.reason, paymentId: err.paymentId });
+        throw err;
+      }
+    }
+
+    if (pathname === '/api/subscription/payment-method' && req.method === 'POST') {
+      const { paymentToken } = await parseJsonBody(req);
+      try {
+        const result = billing.updatePaymentMethod(authUser.id, paymentToken);
+        return sendJson(res, 200, { success: true, message: result.message, subscription: billing.publicSubscription(result.subscription), payment: result.payment });
+      } catch (err) {
+        if (err.status === 402) return sendJson(res, 402, { error: err.message, reason: err.reason });
+        throw err;
+      }
+    }
+
+    // HU-12: pausar un mes, reanudar y cambiar de plan
+    const subscriptionAction = pathname.match(/^\/api\/subscription\/(pause|resume|change-plan)$/);
+    if (subscriptionAction && req.method === 'POST') {
+      const body = await parseJsonBody(req);
+      const action = subscriptionAction[1];
+      const result = action === 'pause' ? billing.pause(authUser.id)
+        : action === 'resume' ? billing.resume(authUser.id)
+          : billing.changePlan(authUser.id, body.plan);
+      return sendJson(res, 200, { success: true, message: result.message, effect: result.effect, subscription: billing.publicSubscription(result.subscription) });
+    }
+
+    // HU-15: datos fiscales del suscriptor
+    if (pathname === '/api/profile/fiscal' && req.method === 'PUT') {
+      const fiscal = await parseJsonBody(req);
+      const fiscalError = billing.validateFiscal(fiscal);
+      if (fiscalError) return sendJson(res, 400, { error: fiscalError });
+      const user = db.updateUser(authUser.id, { fiscal: billing.cleanFiscal(fiscal) });
+      return sendJson(res, 200, { success: true, message: 'Datos de facturación guardados.', fiscal: user.fiscal });
     }
 
     // HU-13: cancelación con encuesta de salida opcional. La encuesta nunca bloquea la cancelación.
     if (pathname === '/api/subscription/cancel' && req.method === 'POST') {
       const { reason, comment } = await parseJsonBody(req);
       const sub = db.getSubscription(authUser.id);
-      if (sub.status === 'CANCELLED') {
-        return sendJson(res, 409, { error: 'Tu suscripción ya está cancelada.' });
-      }
-      if (sub.status === 'NONE') {
-        return sendJson(res, 409, { error: 'No tienes una suscripción activa para cancelar.' });
-      }
+      // HU-12: cancelar detiene los cobros futuros; vale desde activa, en pausa o en mora.
+      billing.assertTransition(sub, 'cancel');
       const validReason = reason && config.CANCELLATION_REASONS[reason] ? reason : null;
       const cancellation = db.addCancellation(authUser.id, {
         plan: sub.plan,
@@ -1014,12 +1153,17 @@ async function handleApiRequest(req, res, pathname) {
       const updated = db.saveSubscription(authUser.id, {
         status: 'CANCELLED',
         cancelledAt: cancellation.createdAt,
-        cancellationId: cancellation.id
+        cancellationId: cancellation.id,
+        nextChargeAt: null,
+        pendingPlan: null,
+        pendingPlanFrom: null,
+        pausedUntil: null,
+        dunning: null
       });
       return sendJson(res, 200, {
         success: true,
         message: 'Tu suscripción quedó cancelada. No se harán más cobros ni despachos.',
-        subscription: updated,
+        subscription: billing.publicSubscription(updated),
         cancellation
       });
     }
