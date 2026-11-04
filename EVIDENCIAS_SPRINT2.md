@@ -1,6 +1,6 @@
 # Evidencias Sprint 2. The Clothes Box
 
-Comando de prueba. `npm test` (equivale a `node tests/api.test.js`). Resultado al cierre del Prompt 3: **53 de 53 en verde** (15 originales + 12 del Prompt 1 + 15 del Prompt 2 + 11 del Prompt 3).
+Comando de prueba. `npm test` (equivale a `node tests/api.test.js`). Resultado al cierre del Prompt 4: **61 de 61 en verde** (15 originales + 12 del Prompt 1 + 15 del Prompt 2 + 11 del Prompt 3 + 8 del Prompt 4).
 
 Verificación manual. Servidor en http://localhost:3000 con una copia de la base, recorriendo cada pantalla en el navegador (detalle en cada HU).
 
@@ -377,3 +377,90 @@ Detalles.
 | Evidencias Sprint 2 Prompt 3 | Este archivo |
 
 Igual que en las sesiones anteriores, backend/billing.js y las rutas mezclan las tres HU. Van en el primer commit (HU-08) y las tablas de arriba dicen qué líneas pertenecen a cada HU. El adaptador de facturación va en ese mismo commit porque billing.js lo carga y, sin él, el commit no arrancaría.
+
+
+---
+
+## Sesión 4. Prompt 4. Logística (04/11/2026)
+
+### Cambios transversales
+
+| Cambio | Archivos | Motivo |
+|---|---|---|
+| Módulo de logística | backend/logistics.js (nuevo) | Concentra el bloqueo del despacho, la guía, el stock por variante y los cambios por talla. Lo usan el avance del cliente (`simulate-step`) y el cambio de estado del administrador, así ambos aplican las mismas reglas. |
+| Adaptador del operador logístico | backend/shipping/index.js (`SHIPPING_PROVIDER=simulated`) | Genera guías de despacho y de devolución inversa marcadas "Operador logístico SIMULADO". Sin dependencias nuevas. El consecutivo diario lo asigna backend/logistics.js L91 contando las guías ya guardadas. |
+| Movimientos de inventario | backend/database.js L23 (`inventoryMovements`) · backend/logistics.js L68 (`moveStock`) · backend/routes.js L608 | Cada salida por despacho, reserva por cambio y reingreso por devolución queda registrada con stock antes y después, motivo y referencia. |
+| Ajuste de la prueba vieja 5 | tests/api.test.js L159 | El cliente de las pruebas 5 a 7 no tenía suscripción pagada y desde HU-09 no se le despacha. Ahora la prueba primero verifica el 409 "Pago no confirmado" y luego paga con 4242. Lo que comprueba la prueba (prendas ocultas hasta la entrega) no cambia. La prueba 26 ya no paga de nuevo; verifica que la suscripción sigue activa. |
+| Ajuste de la prueba vieja 28 | tests/api.test.js L462 | Revisaba stock 10 en el catálogo en memoria. Desde HU-09 los despachos de las pruebas anteriores descuentan stock, así que ahora revisa el catálogo versionado (backend/data/catalog.json), que es lo que dejó la migración. |
+| Talla recibida en "Devoluciones" | backend/routes.js L1003 | Antes la talla de cada prenda se recalculaba con el perfil actual. Al pedir un cambio, el perfil se recalibra y la talla mostrada cambiaba (en la verificación manual, el jean pasó de M a L). Ahora se muestra la talla que se despachó. El historial muestra el nombre de la prenda en lugar de su ID. |
+
+### HU-09 Despacho y seguimiento
+
+Escenarios Gherkin cubiertos. **3 de 3** (antes 1,5).
+
+| Escenario | Código | Prueba |
+|---|---|---|
+| Despacho de caja aprobada: genera la guía `TCB-AAAAMMDD-0001` con el operador simulado, guarda `trackingNumber`, descuenta el stock de las variantes y manda el número al suscriptor | backend/logistics.js L102 (`shipBox`) y L141 (`advanceBox`) · backend/shipping/index.js L27 · backend/routes.js L598 (admin) y L784 (cliente) | Prueba 54 |
+| Seguimiento: el suscriptor ve guía, operador, entrega estimada y los eventos (preparación, despacho, entrega), y recibe los avisos de despachada y entregada | backend/logistics.js L141 · backend/routes.js (`/api/boxes/current`, campos `carrier`, `trackingEvents`) · frontend/js/views/boxView.js L150 | Prueba 55 |
+| Pago no confirmado: si la caja no está APPROVED responde 409 "La caja no ha sido aprobada"; si el pago del ciclo no está confirmado, 409 "Pago no confirmado" | backend/logistics.js L37 (`paymentStatus`) y L47 (`dispatchBlock`) | Prueba 56 |
+| Vista "Cajas por despachar" con lista de picking y empaque | backend/logistics.js L169 (`dispatchQueue`) · backend/routes.js L603 · frontend/js/views/adminView.js L508 y L815 | Prueba 57 |
+
+Detalles.
+- **Pago del ciclo confirmado.** La suscripción está ACTIVE, sin cobro en reintento y con el próximo cobro en el futuro. Sin suscripción, en mora (PAST_DUE), con reintento o cancelada responde "Pago no confirmado". En pausa se mantiene el mensaje de HU-12.
+- **Dónde se bloquea.** Al salir de bodega: de APPROVED a PREPARING, SHIPPED o DELIVERED, y de PREPARING a SHIPPED. Aplica igual al botón del cliente y al cambio de estado del administrador. Si el administrador pasa una caja directo a DELIVERED, la guía y el descuento de stock se hacen igual.
+- **Stock.** Al despachar, por cada prenda se descuenta 1 en la variante de la talla del suscriptor (la del color con más stock) y la caja guarda `shippedVariants` (prenda, talla y color). Ese dato se usa para el reingreso de HU-14.
+- **Avisos.** `BOX_SHIPPED` con número de guía, operador y entrega estimada (2 días hábiles), y `BOX_DELIVERED` con la guía y el plazo de cambio. Ambos en la bandeja de salida.
+- **Picking.** "Cajas por despachar" agrupa por prenda, talla y color con la cantidad y el stock, y marca "falta stock" si no alcanza. Cada caja muestra el suscriptor, la dirección, sus prendas y si el pago está confirmado. Los botones se desactivan cuando la caja está bloqueada.
+- **Verificación manual.**
+  - **Cajas.** Preparé dos clientes con caja aprobada: Lucía con pago y Mateo sin pago. En Panel → Por despachar aparecieron las dos, con un picking de 6 prendas. Mateo decía "Pago no confirmado" y tenía los botones desactivados.
+  - **Despacho.** "Marcar despachada y generar guía" en la caja de Lucía mostró "Caja despachada con guía TCB-20261104-0001. Aviso enviado al suscriptor." y el stock de esas prendas bajó de 10 a 9.
+  - **Seguimiento.** Como Lucía, "Mi Caja" mostró la guía, "Operador logístico SIMULADO", entrega estimada el viernes 6 de noviembre y el evento "Guía generada y paquete recogido".
+  - **Avisos.** Al entregar, la bandeja tenía `BOX_SHIPPED` y `BOX_DELIVERED`, ambos con la guía.
+  - **Celular.** La pestaña se ve a 375 px sin scroll horizontal de la página; la tabla de picking se desplaza dentro de su recuadro.
+
+**Pendientes.**
+- **Color de la prenda.** El motor elige la prenda y la talla, pero no el color. Al despachar se toma la variante con más stock en esa talla. Si el equipo quiere que el estilista elija el color, hay que agregarlo a HU-07.
+- **Stock negativo.** Si no hay stock al despachar, la variante queda en 0 (no negativa) y el picking avisa "falta stock", pero el despacho no se bloquea. Falta decidir si debe bloquearse.
+- **Cancelada con caja aprobada (decisión del equipo).** Una caja aprobada de una suscripción cancelada no se despacha ("Pago no confirmado") aunque el ciclo se haya pagado antes de cancelar.
+
+### HU-14 Cambio o devolución por talla
+
+Escenarios Gherkin cubiertos. **3 de 3** (antes 0,5).
+
+| Escenario | Código | Prueba |
+|---|---|---|
+| Plazo único de 5 días hábiles desde la entrega, validado en el backend; fuera de plazo responde 422 con las condiciones del cambio | backend/config.js L35 y L80 (`RETURN_WINDOW_BUSINESS_DAYS`, `RETURN_CONDITIONS`) · backend/logistics.js L211 (`returnDeadline`) y L226 · backend/routes.js L206 (`/api/config`) y L1014 · frontend/js/views/returnsView.js L16, L102 y L323 | Prueba 58 |
+| Con stock en la talla pedida: guía de devolución inversa y envío programado de la otra talla | backend/logistics.js L226 (`requestReturn`) · backend/shipping/index.js L42 · backend/routes.js L1033 · frontend/js/views/returnsView.js L138 | Prueba 59 |
+| Sin stock en la talla pedida: la respuesta ofrece una prenda equivalente o devolver, y el frontend deja elegir | backend/logistics.js L218 (`equivalentsFor`) · frontend/js/views/returnsView.js L304 | Prueba 60 |
+| Reingreso de inventario: al marcar la prenda recibida, el stock de esa variante sube en 1 y queda el motivo | backend/logistics.js L333 (`receiveReturn`) · backend/routes.js L630 · frontend/js/views/adminView.js L467 (estado "Prenda recibida") | Prueba 61 |
+
+Detalles.
+- **Una sola constante.** El plazo es `RETURN_WINDOW_BUSINESS_DAYS` (5, configurable por variable de entorno). El backend lo usa para validar y el frontend lo lee de `GET /api/config`, así que la vista ya no dice "15 días". La fecha límite es el fin del quinto día hábil después de la entrega (viernes 6 → viernes 13 de noviembre).
+- **Fuera de plazo.** El backend responde 422 con `code: RETURN_WINDOW_EXPIRED`, la fecha límite y las condiciones del cambio. En la vista, cada prenda muestra hasta cuándo se puede pedir el cambio; fuera de plazo el botón se cambia por "Fuera de plazo".
+- **Guías.** La devolución inversa usa `TCB-DEV-AAAAMMDD-0001`. Cuando se envía una talla o prenda de reemplazo, ese envío tiene su propia guía `TCB-AAAAMMDD-NNNN`, que sigue el consecutivo de los despachos. El cliente ve las dos en el historial y le llega el aviso `RETURN_SCHEDULED`.
+- **Con stock.** Se reserva 1 unidad de la talla pedida (movimiento `EXCHANGE_OUT`) y el envío queda programado para la fecha de recogida.
+- **Sin stock.** La respuesta es 409 con `code: NO_STOCK_IN_SIZE` y hasta 3 prendas equivalentes: misma categoría, con stock en la talla pedida, que el cliente no haya recibido, ordenadas por el puntaje del motor. El modal muestra esas opciones y "Solo devolver la prenda", y el cliente envía su elección.
+- **Un cambio por prenda.** Si se repite la solicitud para la misma prenda de la misma caja, responde 409.
+- **Reingreso.** Al pasar a RECEIVED (o a COMPLETED si se saltó RECEIVED) la variante despachada sube 1, con el motivo de talla, y queda el movimiento `RETURN_IN`. Solo ocurre una vez.
+- **Verificación manual.**
+  - **Plazo.** "Devoluciones" dice "Plazo de cambio: 5 días hábiles desde la entrega", y cada prenda dice "Puedes pedir el cambio hasta el miércoles, 11 de noviembre" (entregada el miércoles 4).
+  - **Sin stock.** Con la importación CSV del panel dejé en 0 la camiseta Punto Blanco talla L. Al pedirla en L, el modal mostró "No tenemos … en talla L" con 3 prendas equivalentes y "Solo devolver la prenda". Elegí la Camisa de Lino y quedó "Recogeremos la prenda (guía TCB-DEV-20261104-0001) y te enviaremos Camisa de Lino Manga Corta Resort en talla L".
+  - **Con stock.** El jean de M a L quedó con la guía TCB-DEV-20261104-0002 y el envío de la nueva talla. El historial muestra las dos guías de cada solicitud.
+  - **Reingreso.** En Panel → Devoluciones marqué el jean como "Prenda recibida (reingresa stock)". La talla M pasó de 9 a 10 y quedó el movimiento `RETURN_IN M TOO_SMALL 9→10`.
+  - **Fuera de plazo.** El 422 solo lo cubre la prueba 58: en pantalla una prenda vencida ya no tiene botón.
+
+**Pendientes (decisión del equipo).**
+- **Festivos.** Los días hábiles cuentan de lunes a viernes, sin festivos colombianos. Hay que decidir si se cargan los festivos.
+- **Solo devolver.** No hay compensación definida: la solicitud queda con `creditPending: true`. El equipo debe decidir si se da saldo a favor, se descuenta del siguiente cobro o no aplica.
+- **Equivalente con otro precio.** La prenda equivalente puede tener otro precio mayorista. No se valida que quepa en el costo objetivo de la caja (HU-06).
+- **Estado en el panel.** Al cambiar el estado de una devolución, la tabla del panel no se refresca sola (ya era así antes); se ve al recargar.
+
+### Commits de esta sesión (rama `sprint2`)
+
+| Commit | Contenido |
+|---|---|
+| HU-09 Despacho con guía simulada, stock y cola de picking | backend/shipping/, backend/logistics.js, backend/config.js, backend/database.js, backend/routes.js, tests/api.test.js, api.js, adminView.js, boxView.js (archivos compartidos) |
+| HU-14 Plazo de 5 días hábiles, guías inversas y elección sin stock | returnsView.js |
+| Evidencias Sprint 2 Prompt 4 | Este archivo |
+
+Igual que en las sesiones anteriores, backend/logistics.js y las rutas mezclan las dos HU. Van en el primer commit (HU-09) y las tablas de arriba dicen qué líneas pertenecen a cada HU.
