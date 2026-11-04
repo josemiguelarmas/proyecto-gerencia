@@ -1,6 +1,6 @@
 # Evidencias Sprint 2. The Clothes Box
 
-Comando de prueba. `npm test` (equivale a `node tests/api.test.js`). Resultado al cierre del Prompt 4: **61 de 61 en verde** (15 originales + 12 del Prompt 1 + 15 del Prompt 2 + 11 del Prompt 3 + 8 del Prompt 4).
+Comando de prueba. `npm test` (equivale a `node tests/api.test.js`). Resultado al cierre del Sprint 2 (Prompt 5): **70 de 70 en verde** (15 originales + 12 del Prompt 1 + 15 del Prompt 2 + 11 del Prompt 3 + 8 del Prompt 4 + 9 del Prompt 5). La tabla de las 17 HU está al final de este archivo.
 
 Verificación manual. Servidor en http://localhost:3000 con una copia de la base, recorriendo cada pantalla en el navegador (detalle en cada HU).
 
@@ -464,3 +464,154 @@ Detalles.
 | Evidencias Sprint 2 Prompt 4 | Este archivo |
 
 Igual que en las sesiones anteriores, backend/logistics.js y las rutas mezclan las dos HU. Van en el primer commit (HU-09) y las tablas de arriba dicen qué líneas pertenecen a cada HU.
+
+
+---
+
+## Sesión 5. Prompt 5. Cumplimiento y métricas (04/11/2026)
+
+### Cambios transversales
+
+| Cambio | Archivos | Motivo |
+|---|---|---|
+| Módulos nuevos | backend/privacy.js (HU-16), backend/learning.js (HU-11), backend/metrics.js (HU-17) | Igual que billing.js y logistics.js: las rutas solo llaman a sus funciones y las pruebas pueden usarlas directamente. Sin dependencias nuevas. |
+| Colecciones `dataRequests` y `settings` | backend/database.js L23, L499 (`addDataRequest`) y L517 (`getSetting`, `setSetting`) | Registro de solicitudes del titular y ajustes editables desde el panel (umbral de churn). |
+| El manejador de errores devuelve `code` | backend/routes.js L1236 | Antes solo devolvía el mensaje. Ahora incluye el código (por ejemplo `EMAIL_EXISTS` o `PENDING_CHARGE`) cuando el error lo trae, para que el frontend reaccione. Las respuestas que ya tenían su propio código no cambian. |
+| Historial de altas y bajas en la suscripción | backend/billing.js L307 · backend/routes.js L1216 · backend/privacy.js (cancelación al eliminar) | El churn mensual necesita saber quién estaba activo al inicio de cada mes, aun si se canceló y volvió a suscribirse. Las suscripciones viejas sin historial se reconstruyen con `startedAt` y `cancelledAt` (backend/metrics.js L16). |
+| Sesión inválida tras eliminar la cuenta | backend/auth.js L42 | Un token emitido antes de eliminar la cuenta deja de servir. |
+| La factura conserva los datos fiscales si el titular se elimina | backend/billing.js L129 | Un reintento de factura no debe tomar los datos anonimizados. |
+| Ninguna prueba vieja cambió | tests/api.test.js | Las 61 pruebas anteriores pasan sin ajustes. |
+
+### HU-16 Derechos del titular
+
+Escenarios Gherkin cubiertos. **2 de 2** (antes 0,5).
+
+| Escenario | Código | Prueba |
+|---|---|---|
+| "Mis datos" permite editar nombre y correo, con validación y correo único | backend/privacy.js L18 (`updateAccount`) · backend/routes.js L1165 (`PUT /api/account`) · frontend/js/views/profileView.js L590 (formulario "Información de Cuenta") | Prueba 62 |
+| Eliminar cuenta con contraseña: bloqueo si hay cobro pendiente; si procede, anonimiza nombre, correo, perfil y medidas, conserva facturas y pagos, cancela la suscripción y manda la confirmación | backend/privacy.js L92 (`deleteAccount`) · backend/routes.js L1181 · frontend/js/views/profileView.js L205 y L469 | Pruebas 64 y 65 |
+| Exportación en JSON de datos personales, perfil, cajas y calificaciones | backend/privacy.js L58 (`exportData`) · backend/routes.js L1176 (`GET /api/profile/export`) · frontend/js/views/profileView.js L453 | Prueba 63 |
+| Colección `dataRequests` con tipo, fecha y tiempo de respuesta, y vista en el panel | backend/database.js L499 · backend/privacy.js L150 · backend/routes.js L553 · frontend/js/views/adminView.js L594 (pestaña "Solicitudes de datos") | Prueba 65 |
+
+Detalles.
+- **Correo nuevo.** Queda sin verificar, se manda el enlace de verificación al correo nuevo y un aviso `EMAIL_CHANGED` al anterior. Un correo ya registrado responde 409 "Este correo ya está registrado".
+- **Cobro pendiente.** La cuenta no se elimina si la suscripción está PAST_DUE o tiene un cobro en reintento. Responde 409 `PENDING_CHARGE` con el mensaje de qué hacer, y la solicitud queda registrada como bloqueada.
+- **Qué se anonimiza.** Nombre ("Usuario eliminado"), correo (`eliminado_<id>@anonimo.invalid`), contraseña, fecha de nacimiento y datos fiscales del usuario. Se borran el perfil y las medidas, el historial de versiones, las sesiones del quiz y los tokens. Las direcciones de cajas y devoluciones quedan como "Dirección anonimizada" y se borran los comentarios de las calificaciones.
+- **Qué se conserva.** Los pagos y las facturas, por obligación tributaria; cada factura guarda su propia copia de los datos fiscales. También se conservan los registros de consentimiento como prueba de la autorización, y los puntajes de las calificaciones (sin texto) para las métricas. El token de la tarjeta se borra.
+- **Plazos.** La vista muestra el plazo legal por tipo de solicitud (Ley 1581: consultas 10 días hábiles, reclamos 15) junto al tiempo real de respuesta.
+- **Verificación manual.**
+  - **Correo duplicado.** Con una clienta nueva, cambiar el correo a demo@theclothesbox.co mostró "Este correo ya está registrado".
+  - **Correo nuevo.** Con otro correo mostró "Datos actualizados. Te enviamos un enlace para verificar…" y el aviso de verificación pasó a mostrar el correo nuevo.
+  - **Exportación.** Trae cuenta (sin contraseña), consentimientos, perfil con medidas, suscripción, pagos, facturas, cajas, calificaciones y devoluciones. La revisé con la misma llamada que usa el botón "Descargar mis datos (JSON)", sin descargar el archivo en el navegador.
+  - **Eliminación.** Con una contraseña equivocada mostró "La contraseña no es correcta…". Con la correcta cerró la sesión y mostró "Tu cuenta fue eliminada…". La factura SETT-1 sigue con la cédula de la clienta y la confirmación `ACCOUNT_DELETED` llegó a su correo.
+  - **Panel.** "Solicitudes de datos" lista la supresión (49 ms), la consulta (0 ms) y la rectificación (4 ms).
+
+**Pendientes (decisión del equipo).**
+- **Plazo de conservación.** Hay que validar con asesoría legal cuánto tiempo se guardan pagos y facturas y qué otros datos (consentimientos, puntajes de calificación) pueden conservarse tras la supresión.
+- **Solicitudes por correo.** Las que lleguen a datos@theclothesbox.co no entran a `dataRequests`; hoy solo se registran las que se hacen desde la app.
+
+### HU-11 Reentrenamiento del motor
+
+Escenarios Gherkin cubiertos. **2 de 2** (antes 0,5).
+
+| Punto | Código | Prueba |
+|---|---|---|
+| Una calificación de estilo de 2 o menos reduce el peso de los atributos de la prenda en el perfil, con piso | backend/learning.js L32 (`applyRating`) y L8 (`clamp`) · backend/engine.js L103 (`learnedFactor`) y L109 · backend/config.js L83 (`LEARNING`) | Prueba 66 |
+| Las correcciones del estilista son ejemplos: la prenda reemplazada penaliza y la nueva suma | backend/learning.js L40 (`applyCorrection`) | Prueba 67 |
+| `ingestFeedback` ejecutable por el administrador | backend/learning.js L61 · backend/routes.js L558 · frontend/js/views/adminView.js L965 (botón "Reentrenar motor con el feedback" en la pestaña Feedback) | Prueba 67 |
+| Evaluación antes y después con perfiles sintéticos | scripts/evaluate-model.js | Prueba 68 |
+| `rulesVersion` en cada caja y en el perfil | backend/config.js L82 · backend/routes.js L79 (`createCuratedBox`) · backend/database.js L721 · backend/learning.js L61 | Prueba 67 |
+
+Detalles.
+- **El modelo.** Cada perfil tiene factores por atributo (`attributeWeights` de estilo, ocasión y corte) que multiplican los puntos de `scoreProduct`. Empiezan en 1, nunca bajan de 0,3 (piso) ni pasan de 2. Una calificación de estilo de 2 o menos multiplica los atributos de la prenda por 0,6.
+- **Correcciones.** Solo cambia lo que distingue a una prenda de la otra. Los atributos de la prenda retirada que no tiene la nueva se multiplican por 0,9 (0,95 si fue un rechazo de toda la caja). Los propios de la nueva se multiplican por 1,1 y sus estilos suman 0,25 al bono `styleWeights`. Lo que comparten no cambia, porque si no, la penalización y el premio se anulaban (lo detectó la prueba 67).
+- **Idempotente.** Cada calificación y cada corrección quedan marcadas con `learnedAt` y no se aprenden dos veces. El perfil guarda `rulesVersion` y `learningRevision`, y cada caja guarda con qué `rulesVersion` y qué revisión del perfil se armó.
+- **Evaluación.** `node scripts/evaluate-model.js [n]` genera perfiles cuyo gusto real difiere de lo declarado en el quiz. Compara la caja del mes siguiente sin aprender contra la caja tras aprender del primer mes. Resultado con el catálogo actual:
+
+| Perfiles | Calificación simulada antes | Después | Mejoran | Empeoran |
+|---|---|---|---|---|
+| 40 | 3,52 | 3,57 | 6 | 1 |
+| 200 | 3,45 | 3,55 | 31 | 7 |
+
+- **Verificación manual.** En Panel → Feedback, "Reentrenar motor con el feedback" mostró "Motor reglas-v2: 13 calificaciones (0 con estilo ≤ 2) y 0 correcciones del estilista procesadas · 0 perfiles actualizados".
+
+**Pendientes.**
+- **La mejora es pequeña.** Con 18 prendas y el tope de costo de HU-06 casi no hay alternativas por categoría, así que bajar el peso de un estilo no siempre cambia la caja. Probé penalizaciones de 0,8, 0,6 y 0,5 (resultado 3,55, 3,57 y 3,59 con 40 perfiles) y dejé 0,6 como valor intermedio. El efecto debería crecer con un catálogo más grande. La evaluación es simulada: hay que validarla con calificaciones reales del piloto.
+- **Ejecución automática (decisión del equipo).** El reentrenamiento corre cuando el administrador lo pide; no está en los jobs programados. Hay que decidir si se corre solo, por ejemplo cada semana.
+
+### HU-17 Panel de KPIs
+
+Escenarios Gherkin cubiertos. **2 de 2** (antes 0,5).
+
+| Punto | Código | Prueba |
+|---|---|---|
+| Indicadores del mes: activos, altas, churn (cancelaciones del mes ÷ activos al inicio), calificación promedio, % de devoluciones por talla y motivos de cancelación de HU-13 | backend/metrics.js L31 (`computeKpis`) y L25 (`activeAt`) · backend/routes.js L563 | Prueba 69 |
+| Filtros por mes y por plan | backend/routes.js L563 (`?month=AAAA-MM&plan=`) · frontend/js/views/adminView.js L529 y L947 | Pruebas 69 y 70 |
+| Alerta visible cuando el churn supera el umbral (9 % por defecto, configurable desde el panel) | backend/config.js L85 · backend/routes.js L574 · frontend/js/views/adminView.js L529 | Pruebas 69 y 70 |
+| scripts/seed-demo.js con unos 100 usuarios sintéticos marcados como datos de prueba | scripts/seed-demo.js · backend/routes.js L514 (el batch no les arma cajas) | Prueba 70 |
+
+Detalles.
+- **Activos.** Se cuentan las suscripciones cuyo último evento antes de la fecha es un alta. Una suscripción en pausa o en mora cuenta como activa porque no ha cancelado.
+- **Altas.** Incluyen las reactivaciones.
+- **Devoluciones por talla.** Solicitudes del mes ÷ prendas entregadas en el mes.
+- **Calificación promedio.** Usa el puntaje general de las calificaciones creadas en el mes.
+- **Filtro por plan.** Usa el plan del evento (alta o baja) o de la caja.
+- **Seed.** 100 usuarios con correo `@seed.theclothesbox.test`, `seedDemo: true`, sin contraseña ni medio de pago. El 55 % ya estaba suscrito antes de la ventana de 3 meses y el 22 % cancela. Trae unas 230 cajas, unas 830 calificaciones y unas 50 devoluciones. `--reset` borra solo esos datos. El cobro recurrente no los toca (sin fecha de cobro) y el batch los omite. Volver a correr el seed reemplaza los datos de la corrida anterior.
+- **Verificación manual.** Sobre una copia de la base con el seed:
+  - **Noviembre.** 82 activos, 11 altas, churn 7,8 %, ★ 4,2 y 9 % de devoluciones, sin alerta.
+  - **Octubre.** Muestra "Alerta de churn. El churn de 2026-10 es 12,2 % y supera el umbral de 9 %".
+  - **Umbral.** Con 15 % la alerta desaparece. Con el filtro Estilo el churn de octubre es 15,4 % y la alerta vuelve.
+  - **Motivos.** Las barras de motivos de cancelación muestran el conteo por motivo y las cancelaciones sin respuesta.
+
+**Pendientes.**
+- **Cambios de plan.** No se guardan como eventos. Si alguien pasa de Esencial a Estilo, el filtro por plan lo sigue contando en el plan de su alta. Hay que definir si se historizan.
+- **Seed sobre la base real.** `node scripts/seed-demo.js` escribe en backend/data/db.json salvo que se use `TCB_DB_FILE`. No lo dejé aplicado en la base versionada: el equipo decide si la demo se hace sobre una copia o sobre la base con `--reset` al final.
+
+### Commits de esta sesión (rama `sprint2`)
+
+| Commit | Contenido |
+|---|---|
+| HU-16 Editar, exportar y eliminar datos del titular con registro de solicitudes | backend/privacy.js, backend/learning.js, backend/metrics.js, backend/config.js, backend/database.js, backend/auth.js, backend/billing.js, backend/engine.js, backend/routes.js, tests/api.test.js, scripts/evaluate-model.js, scripts/seed-demo.js, api.js (archivos compartidos), profileView.js ("Mis datos") y adminView.js (pestaña "Solicitudes de datos") |
+| HU-11 Botón de reentrenamiento del motor en el panel | adminView.js (botón "Reentrenar motor con el feedback") |
+| HU-17 Panel de KPIs del mes con filtros y alerta de churn | adminView.js (pestaña "KPIs del mes"), README.md |
+| Evidencias Sprint 2 Prompt 5 | Este archivo |
+
+Igual que en las sesiones anteriores, las rutas, las pruebas y el panel mezclan las tres HU. Van en el primer commit (HU-16) y las tablas de arriba dicen qué líneas pertenecen a cada HU. Los dos scripts van en ese commit porque las pruebas los cargan; sin ellos, ese commit no pasaría `npm test`.
+
+---
+
+## Cierre del Sprint 2. Estado de las 17 HU del alcance
+
+HU-18 y HU-19 quedan fuera del alcance (Could, después del piloto). Comando de prueba: `npm test` (70 de 70 en verde).
+
+| HU | Nombre | Sesión | Escenarios cubiertos | Antes del Sprint 2 | Pruebas |
+|---|---|---|---|---|---|
+| HU-01 | Registro y acceso | 1 | 3 de 3 | 1,5 | 19 a 23 |
+| HU-02 | Consentimiento de datos personales | 1 | 3 de 3 | 0 | 17 y 18 |
+| HU-03 | Quiz de estilo | 2 | 3 de 3 | 1,5 | 40 a 42 |
+| HU-04 | (no incluida en los prompts del Sprint 2) | — | Sin cambios en este sprint | — | — |
+| HU-05 | Catálogo | 2 | 2 de 2 | 0,5 | 28 a 30 |
+| HU-06 | Motor de recomendación | 2 | 3 de 3 | 2,5 | 31 a 33 y 39 |
+| HU-07 | Validación del estilista | 2 | 3 de 3 | 0 | 34 a 38 |
+| HU-08 | Plan y pago recurrente | 3 | 3 de 3 | 0 | 43 a 47 |
+| HU-09 | Despacho y seguimiento | 4 | 3 de 3 | 1,5 | 54 a 57 |
+| HU-10 | Calificación de la caja | 1 | 3 de 3 | 2 | 24 y 25 |
+| HU-11 | Reentrenamiento del motor | 5 | 2 de 2 | 0,5 | 66 a 68 |
+| HU-12 | Pausar, cambiar plan o cancelar | 3 | 3 de 3 | Solo en el prototipo | 48 a 51 |
+| HU-13 | Encuesta de salida | 1 | 3 de 3 | Solo en el prototipo | 26 y 27 |
+| HU-14 | Cambio o devolución por talla | 4 | 3 de 3 | 0,5 | 58 a 61 |
+| HU-15 | Facturación electrónica | 3 | 2 de 2 | 0 | 52 y 53 |
+| HU-16 | Derechos del titular | 5 | 2 de 2 | 0,5 | 62 a 65 |
+| HU-17 | Panel de KPIs | 5 | 2 de 2 | 0,5 | 69 y 70 |
+
+**HU-04.** Ningún prompt del Sprint 2 la incluye y no aparece en el código ni en este documento. Su estado debe tomarse de Jira (Sprint 1); no se reporta un conteo para no inventarlo.
+
+**Decisiones abiertas para el equipo** (detalle en cada sesión):
+- **Legal.** Revisión del texto de la política de datos (HU-02) y de los plazos de conservación tras la supresión (HU-16).
+- **Precios y costos.** Precio mayorista real por prenda, logística y margen (HU-05 y HU-06), y el tratamiento del IVA (HU-15).
+- **Pagos y despacho.** Despacho durante los reintentos de cobro (HU-08) y de cajas aprobadas tras cancelar (HU-09).
+- **Suscripción.** Saldo a favor y pausas de más de un mes (HU-12).
+- **Devoluciones.** Festivos en el plazo y compensación de "solo devolver" (HU-14).
+- **Motor.** Ejecución automática del reentrenamiento (HU-11).
+- **Métricas.** Historizar los cambios de plan (HU-17).
+- **Integración real.** Al conectar la pasarela de pagos, el proveedor de facturación DIAN, el operador logístico y el correo, cada adaptador debe recibir su proveedor real con la misma interfaz.
