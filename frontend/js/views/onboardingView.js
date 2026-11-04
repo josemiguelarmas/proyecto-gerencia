@@ -507,8 +507,15 @@ TCB.views.onboarding = (() => {
             TCB.state.toast(`Nueva versión de tu perfil guardada (v${res.profile.version})${duration}.`);
             window.location.hash = '#/perfil';
           } else {
-            TCB.state.toast(`¡Perfil guardado${duration}! Tu estilista revisará tu primera caja.`);
-            window.location.hash = '#/caja';
+            // HU-08: sin suscripción pagada, el siguiente paso es elegir plan y registrar el pago.
+            const { subscription } = await TCB.api.subscription.get();
+            if (subscription.status === 'ACTIVE') {
+              TCB.state.toast(`¡Perfil guardado${duration}! Tu estilista revisará tu primera caja.`);
+              window.location.hash = '#/caja';
+            } else {
+              TCB.state.toast(`¡Perfil guardado${duration}! Último paso: activa tu plan.`);
+              window.location.hash = '#/suscripcion';
+            }
           }
         } catch (err) {
           errEl.textContent = err.data?.error || err.message;

@@ -6,7 +6,13 @@
       "email": "demo@theclothesbox.co",
       "passwordHash": "2f7ed5191058a2b516de6662962f049a:239a8b7ca1a37d3233921eb478c37054a025fdc9e4e047d9f21850277845f5e66b8af455088879adb930815abede6db337046bf727294659feba4fa644e0b5ed",
       "createdAt": "2026-08-01T10:00:00.000Z",
-      "role": "CLIENT"
+      "role": "CLIENT",
+      "fiscal": {
+        "docType": "CC",
+        "docNumber": "1144000000",
+        "address": "Calle 18 # 122-135, Pance",
+        "city": "Cali"
+      }
     },
     {
       "id": "usr_8658ea9d9471",
@@ -894,9 +900,26 @@
   ],
   "consents": [],
   "authTokens": [],
-  "subscriptions": [],
+  "subscriptions": [
+    {
+      "id": "sub_demo_01",
+      "userId": "usr_demo_01",
+      "plan": "esencial",
+      "status": "ACTIVE",
+      "paymentToken": "tok_sim_ok_visa_4242_demo0000000000",
+      "cardBrand": "Visa",
+      "cardLast4": "4242",
+      "startedAt": "2026-11-04T12:38:04.304Z",
+      "nextChargeAt": "2026-12-04T12:38:04.304Z",
+      "dunning": null,
+      "createdAt": "2026-11-04T12:38:04.304Z"
+    }
+  ],
   "cancellations": [],
   "corrections": [],
   "quizSessions": [],
-  "profileVersions": []
+  "profileVersions": [],
+  "payments": [],
+  "invoices": [],
+  "alerts": []
 }

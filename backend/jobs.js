@@ -31,17 +31,29 @@ function runReviewReminders(now = new Date()) {
   return { sent: sent.length, boxIds: sent };
 }
 
-let timer = null;
+let timers = [];
+
+// HU-08 y HU-15: el cobro recurrente y los reintentos de factura corren cada hora; solo
+// actúan sobre lo vencido. Se cargan aquí para evitar una dependencia circular con billing.
+function runBillingJobs() {
+  const billing = require('./billing');
+  billing.runRecurringBilling();
+  billing.runInvoiceRetries();
+}
 
 function startJobs() {
   runReviewReminders();
-  timer = setInterval(() => runReviewReminders(), config.REVIEW_REMINDER_INTERVAL_MS);
-  timer.unref();
+  runBillingJobs();
+  timers = [
+    setInterval(() => runReviewReminders(), config.REVIEW_REMINDER_INTERVAL_MS),
+    setInterval(() => runBillingJobs(), config.BILLING_INTERVAL_MS)
+  ];
+  timers.forEach(t => t.unref());
 }
 
 function stopJobs() {
-  if (timer) clearInterval(timer);
-  timer = null;
+  timers.forEach(t => clearInterval(t));
+  timers = [];
 }
 
 module.exports = { runReviewReminders, startJobs, stopJobs };

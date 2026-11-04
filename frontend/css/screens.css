@@ -282,3 +282,11 @@
 @media (min-width: 900px) { .stylist-layout { grid-template-columns: 260px 1fr; align-items: start; } }
 .stylist-queue-item { display: flex; flex-direction: column; gap: 2px; text-align: left; width: 100%; padding: 12px 14px; background: var(--sheet); border: var(--line); border-radius: var(--r-1); cursor: pointer; color: var(--ink); }
 .stylist-queue-item.is-active { border-color: var(--brand-box); box-shadow: inset 4px 0 0 var(--brand-box); }
+
+/* HU-08/HU-12/HU-15: avisos de estado (pagos, pausa, mora y facturación) */
+.banner { padding: 14px 16px; border: 1px solid var(--rule); border-radius: var(--r-2); background: var(--paper-2); }
+.banner--info { background: var(--talla-wash); border-color: var(--talla); }
+.banner--warn { background: var(--warn-wash); border-color: var(--warn); }
+.banner--danger { background: var(--danger-wash); border-color: var(--danger); }
+.sub-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.sub-actions .btn { flex: 1 1 180px; }

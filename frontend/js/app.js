@@ -11,6 +11,7 @@ TCB.app = (() => {
     '#/devoluciones': TCB.views.returns,
     '#/historial': TCB.views.history,
     '#/perfil': TCB.views.profile,
+    '#/suscripcion': TCB.views.subscribe,
     '#/admin': TCB.views.admin,
     '#/estilista': TCB.views.stylist,
     '#/restablecer': TCB.views.resetPassword,

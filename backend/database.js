@@ -20,7 +20,7 @@ function verifyPassword(password, stored) {
 }
 
 // Colecciones de la base. Las de Sprint 2 se crean vacías en bases existentes.
-const COLLECTIONS = ['users', 'profiles', 'boxes', 'ratings', 'returns', 'consents', 'authTokens', 'subscriptions', 'cancellations', 'corrections', 'quizSessions', 'profileVersions'];
+const COLLECTIONS = ['users', 'profiles', 'boxes', 'ratings', 'returns', 'consents', 'authTokens', 'subscriptions', 'cancellations', 'corrections', 'quizSessions', 'profileVersions', 'payments', 'invoices', 'alerts'];
 
 function emptyData() {
   return Object.fromEntries(COLLECTIONS.map(c => [c, []]));
@@ -96,6 +96,31 @@ class Database {
         role: 'STYLIST',
         createdAt: '2026-11-01T08:00:00.000Z'
       });
+      needsSave = true;
+    }
+
+    // HU-08: el cliente demo tiene una suscripción pagada con la tarjeta de prueba 4242
+    const demo = this.data.users.find(u => u.email === 'demo@theclothesbox.co');
+    if (demo && !this.data.subscriptions.some(s => s.userId === demo.id)) {
+      const now = new Date();
+      const next = new Date(now);
+      next.setMonth(next.getMonth() + 1);
+      this.data.subscriptions.push({
+        id: 'sub_demo_01',
+        userId: demo.id,
+        plan: (this.getProfile(demo.id) || {}).plan || 'esencial',
+        status: 'ACTIVE',
+        paymentToken: 'tok_sim_ok_visa_4242_demo0000000000',
+        cardBrand: 'Visa',
+        cardLast4: '4242',
+        startedAt: now.toISOString(),
+        nextChargeAt: next.toISOString(),
+        dunning: null,
+        createdAt: now.toISOString()
+      });
+      if (!demo.fiscal) {
+        demo.fiscal = { docType: 'CC', docNumber: '1144000000', address: 'Calle 18 # 122-135, Pance', city: 'Cali' };
+      }
       needsSave = true;
     }
 
@@ -387,31 +412,87 @@ class Database {
     return record;
   }
 
-  // HU-13 (y base para HU-08/HU-12): suscripción mínima y cancelaciones
+  // HU-08: la suscripción nace con el primer pago aprobado. Sin registro el estado es NONE.
   getSubscription(userId) {
     let sub = this.data.subscriptions.find(s => s.userId === userId);
     if (!sub) {
-      // TODO HU-08: la suscripción nace con el pago. Mientras tanto, un perfil completo cuenta como ACTIVE.
       const profile = this.getProfile(userId);
       sub = {
         userId,
         plan: (profile && profile.plan) || 'esencial',
-        status: profile && profile.done ? 'ACTIVE' : 'NONE',
-        createdAt: new Date().toISOString()
+        status: 'NONE'
       };
     }
     return sub;
   }
 
+  getAllSubscriptions() {
+    return this.data.subscriptions;
+  }
+
   saveSubscription(userId, updates) {
     let sub = this.data.subscriptions.find(s => s.userId === userId);
     if (!sub) {
-      sub = { ...this.getSubscription(userId) };
+      sub = { id: `sub_${crypto.randomBytes(6).toString('hex')}`, ...this.getSubscription(userId), createdAt: new Date().toISOString() };
       this.data.subscriptions.push(sub);
     }
     Object.assign(sub, updates, { updatedAt: new Date().toISOString() });
     this.save();
     return sub;
+  }
+
+  // HU-08: pagos con comisión de pasarela y estado de conciliación
+  addPayment(data) {
+    const payment = {
+      id: `pay_${crypto.randomBytes(6).toString('hex')}`,
+      reconciliation: { status: 'PENDING', at: null },
+      invoiceId: null,
+      createdAt: new Date().toISOString(),
+      ...data
+    };
+    this.data.payments.push(payment);
+    this.save();
+    return payment;
+  }
+
+  findPayment(predicate) {
+    return this.data.payments.find(predicate) || null;
+  }
+
+  getPayments(userId) {
+    const list = userId ? this.data.payments.filter(p => p.userId === userId) : this.data.payments;
+    return [...list].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  }
+
+  // HU-15: facturas con consecutivo propio y alertas para el equipo
+  addInvoice(data) {
+    const consecutive = this.data.invoices.reduce((max, i) => Math.max(max, i.consecutive || 0), 0) + 1;
+    const invoice = {
+      id: `inv_${crypto.randomBytes(6).toString('hex')}`,
+      consecutive,
+      createdAt: new Date().toISOString(),
+      ...data,
+      number: `${data.prefix}-${consecutive}`
+    };
+    this.data.invoices.push(invoice);
+    this.save();
+    return invoice;
+  }
+
+  getInvoices(userId) {
+    const list = userId ? this.data.invoices.filter(i => i.userId === userId) : this.data.invoices;
+    return [...list].sort((a, b) => b.consecutive - a.consecutive);
+  }
+
+  addAlert(data) {
+    const alert = { id: `alr_${crypto.randomBytes(6).toString('hex')}`, createdAt: new Date().toISOString(), resolvedAt: null, ...data };
+    this.data.alerts.push(alert);
+    this.save();
+    return alert;
+  }
+
+  getAlerts() {
+    return [...this.data.alerts].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   }
 
   addCancellation(userId, { plan, reason, comment }) {
