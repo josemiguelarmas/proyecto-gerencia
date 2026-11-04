@@ -17,12 +17,13 @@ TCB.views.admin = (() => {
     cancellationReasons: null,
     payments: null,
     invoices: null,
-    dispatch: null
+    dispatch: null,
+    dataRequests: null
   };
 
   async function loadAdminData() {
     try {
-      const [metrics, boxesRes, clientsRes, productsRes, returnsRes, feedbackRes, outboxRes, cancellationReasons, payments, invoices, dispatch] = await Promise.all([
+      const [metrics, boxesRes, clientsRes, productsRes, returnsRes, feedbackRes, outboxRes, cancellationReasons, payments, invoices, dispatch, dataRequests] = await Promise.all([
         TCB.api.admin.metrics(),
         TCB.api.admin.boxes(),
         TCB.api.admin.clients(),
@@ -33,7 +34,8 @@ TCB.views.admin = (() => {
         TCB.api.admin.cancellationReasons(),
         TCB.api.admin.payments(),
         TCB.api.admin.invoices(),
-        TCB.api.admin.dispatch()
+        TCB.api.admin.dispatch(),
+        TCB.api.admin.dataRequests()
       ]);
 
       cachedData = {
@@ -47,7 +49,8 @@ TCB.views.admin = (() => {
         cancellationReasons,
         payments,
         invoices,
-        dispatch
+        dispatch,
+        dataRequests
       };
       return cachedData;
     } catch (e) {
@@ -168,6 +171,9 @@ TCB.views.admin = (() => {
           <button type="button" class="btn btn--quiet admin-tab ${activeTab === 'outbox' ? 'is-active' : ''}" data-tab="outbox">
             Bandeja de Salida (${cachedData.outbox.length})
           </button>
+          <button type="button" class="btn btn--quiet admin-tab ${activeTab === 'datarequests' ? 'is-active' : ''}" data-tab="datarequests">
+            Solicitudes de datos (${cachedData.dataRequests ? cachedData.dataRequests.requests.length : 0})
+          </button>
           <button type="button" class="btn btn--quiet admin-tab ${activeTab === 'dispatch' ? 'is-active' : ''}" data-tab="dispatch">
             Por despachar (${cachedData.dispatch ? cachedData.dispatch.boxes.length : 0})
           </button>
@@ -201,6 +207,8 @@ TCB.views.admin = (() => {
         return renderCancellationsTab(cachedData.cancellationReasons);
       case 'outbox':
         return renderOutboxTab(cachedData.outbox);
+      case 'datarequests':
+        return renderDataRequestsTab(cachedData.dataRequests);
       case 'dispatch':
         return renderDispatchTab(cachedData.dispatch);
       case 'payments':
@@ -503,6 +511,50 @@ TCB.views.admin = (() => {
   }
 
   const SUB_STATUS = { ACTIVE: 'Activa', PAUSED: 'En pausa', PAST_DUE: 'Pago pendiente', CANCELLED: 'Cancelada' };
+
+  const PLAN_FILTERS = { all: 'Todos los planes', esencial: 'Esencial', estilo: 'Estilo' };
+  const pct = v => (v === null || v === undefined ? '—' : `${Number(v).toLocaleString('es-CO')} %`);
+
+  // HU-16: solicitudes de los titulares y tiempo de respuesta frente al plazo legal
+  function renderDataRequestsTab(data) {
+    if (!data) return '<p class="muted">Sin solicitudes.</p>';
+    const TYPES = { EXPORT: 'Consulta (exportación)', RECTIFICATION: 'Rectificación', DELETION: 'Supresión' };
+    const time = ms => (ms < 1000 ? `${ms} ms` : `${Math.round(ms / 1000)} s`);
+    return `
+      <div class="stack" style="--stack:20px">
+        <div>
+          <h2 class="display" style="font-size:var(--fs-xl)">Solicitudes de datos personales</h2>
+          <p class="small muted">Derechos del titular (Ley 1581 de 2012). Las solicitudes desde "Mis datos" se resuelven en el acto.</p>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
+          ${data.summary.map(t => `
+            <div style="background:var(--sheet);border:var(--line);padding:14px">
+              <p class="small muted">${TYPES[t.type] || t.type}</p>
+              <p class="display" style="font-size:var(--fs-2xl)">${t.count}</p>
+              <p class="small muted">Respuesta promedio ${time(t.avgResponseMs)} · plazo legal ${t.deadlineBusinessDays} días hábiles${t.blocked ? ` · ${t.blocked} bloqueadas` : ''}</p>
+            </div>
+          `).join('') || '<p class="muted">Aún no hay solicitudes.</p>'}
+        </div>
+        ${data.requests.length ? `
+          <div style="overflow-x:auto">
+            <table class="returns-history-table">
+              <thead><tr><th>Fecha</th><th>Titular</th><th>Tipo</th><th>Estado</th><th>Respuesta</th><th>Detalle</th></tr></thead>
+              <tbody>${data.requests.map(r => `
+                <tr>
+                  <td class="small">${new Date(r.requestedAt).toLocaleString('es-CO')}</td>
+                  <td class="small">${r.userName}</td>
+                  <td class="small">${TYPES[r.type] || r.type}</td>
+                  <td class="small">${r.status === 'BLOCKED' ? 'Bloqueada' : 'Resuelta'}</td>
+                  <td class="mono small">${time(r.responseMs)}</td>
+                  <td class="small">${r.detail}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }
 
   // HU-09: cajas por despachar con lista de picking y empaque
   function renderDispatchTab(data) {

@@ -7,6 +7,9 @@ const mail = require('./mail');
 const { runReviewReminders } = require('./jobs');
 const billing = require('./billing');
 const logistics = require('./logistics');
+const privacy = require('./privacy');
+const learning = require('./learning');
+const metrics = require('./metrics');
 const payments = require('./payments');
 
 // Edad cumplida a partir de una fecha YYYY-MM-DD. Devuelve null si la fecha no es válida.
@@ -71,7 +74,10 @@ function createCuratedBox(userId, profile, { cycle, address, receivedIds = [], e
     recommendations: curated.recommendations,
     totalCostCOP: curated.totalCostCOP,
     targetCostCOP: curated.targetCostCOP,
-    withinCap: curated.withinCap
+    withinCap: curated.withinCap,
+    // HU-11: con qué reglas y qué revisión del perfil aprendido se armó la caja
+    rulesVersion: config.RULES_VERSION,
+    profileLearningRevision: profile.learningRevision || 0
   });
   return { box, curated };
 }
@@ -504,6 +510,8 @@ async function handleApiRequest(req, res, pathname) {
         const generated = [];
         const skipped = [];
         db.data.users.filter(u => (u.role || 'CLIENT') === 'CLIENT').forEach(user => {
+          // HU-17: los suscriptores sintéticos de scripts/seed-demo.js no reciben cajas reales.
+          if (user.seedDemo) return skipped.push({ userId: user.id, reason: 'Dato de prueba' });
           // HU-08/HU-12: solo suscripciones pagadas y al día; en pausa o en mora no reciben caja.
           const sub = db.getSubscription(user.id);
           const profile = db.getProfile(user.id);
@@ -539,6 +547,38 @@ async function handleApiRequest(req, res, pathname) {
           generated,
           skipped
         });
+      }
+
+      // HU-16: solicitudes de los titulares con su tiempo de respuesta
+      if (pathname === '/api/admin/data-requests' && req.method === 'GET') {
+        return sendJson(res, 200, privacy.dataRequestsReport());
+      }
+
+      // HU-11: reentrenamiento del motor con el feedback pendiente
+      if (pathname === '/api/admin/jobs/ingest-feedback' && req.method === 'POST') {
+        return sendJson(res, 200, { success: true, ...learning.ingestFeedback() });
+      }
+
+      // HU-17: indicadores del mes con filtros por mes y plan
+      if (pathname === '/api/admin/kpis' && req.method === 'GET') {
+        const query = new URL(req.url, 'http://localhost').searchParams;
+        const months = metrics.availableMonths();
+        const month = query.get('month') || months[0];
+        const plan = query.get('plan') || 'all';
+        if (!/^\d{4}-\d{2}$/.test(month)) return sendJson(res, 400, { error: 'El mes debe tener el formato AAAA-MM.' });
+        if (plan !== 'all' && !config.PLANS[plan]) return sendJson(res, 400, { error: 'El plan debe ser all, esencial o estilo.' });
+        const threshold = db.getSetting('churnThreshold', config.CHURN_THRESHOLD_DEFAULT);
+        return sendJson(res, 200, { ...metrics.computeKpis(db.data, { month, plan, threshold }), months });
+      }
+
+      if (pathname === '/api/admin/settings/churn-threshold' && req.method === 'PUT') {
+        const { value } = await parseJsonBody(req);
+        const n = Number(value);
+        if (!Number.isFinite(n) || n <= 0 || n > 100) {
+          return sendJson(res, 400, { error: 'El umbral de churn debe ser un porcentaje mayor que 0 y hasta 100.' });
+        }
+        const saved = db.setSetting('churnThreshold', Math.round(n * 10) / 10);
+        return sendJson(res, 200, { success: true, threshold: saved.value });
       }
 
       // HU-08: pagos, comisión de la pasarela, conciliación y suscripciones
@@ -1121,6 +1161,33 @@ async function handleApiRequest(req, res, pathname) {
       return sendJson(res, 200, { success: true, message: result.message, effect: result.effect, subscription: billing.publicSubscription(result.subscription) });
     }
 
+    // HU-16: rectificación de nombre y correo
+    if (pathname === '/api/account' && req.method === 'PUT') {
+      const body = await parseJsonBody(req);
+      const result = privacy.updateAccount(authUser.id, body);
+      const message = result.changed.length === 0 ? 'No hubo cambios en tus datos.'
+        : result.emailChanged ? `Datos actualizados. Te enviamos un enlace para verificar ${result.user.email}.`
+          : 'Datos actualizados.';
+      if (result.emailChanged) sendVerificationEmail(result.user);
+      return sendJson(res, 200, { success: true, message, user: publicUser(result.user) });
+    }
+
+    // HU-16: exportación de los datos personales en JSON
+    if (pathname === '/api/profile/export' && req.method === 'GET') {
+      return sendJson(res, 200, privacy.exportData(authUser.id));
+    }
+
+    // HU-16: supresión de la cuenta con confirmación por contraseña
+    if (pathname === '/api/account/delete' && req.method === 'POST') {
+      const { password } = await parseJsonBody(req);
+      try {
+        return sendJson(res, 200, { success: true, ...privacy.deleteAccount(authUser.id, password) });
+      } catch (err) {
+        if (err.code) return sendJson(res, err.status, { error: err.message, code: err.code });
+        throw err;
+      }
+    }
+
     // HU-15: datos fiscales del suscriptor
     if (pathname === '/api/profile/fiscal' && req.method === 'PUT') {
       const fiscal = await parseJsonBody(req);
@@ -1146,6 +1213,7 @@ async function handleApiRequest(req, res, pathname) {
         status: 'CANCELLED',
         cancelledAt: cancellation.createdAt,
         cancellationId: cancellation.id,
+        history: [...(sub.history || []), { type: 'CANCEL', plan: sub.plan, at: cancellation.createdAt }],
         nextChargeAt: null,
         pendingPlan: null,
         pendingPlanFrom: null,
@@ -1165,7 +1233,7 @@ async function handleApiRequest(req, res, pathname) {
 
   } catch (error) {
     if (error.status) {
-      return sendJson(res, error.status, { error: error.message });
+      return sendJson(res, error.status, { error: error.message, ...(typeof error.code === 'string' ? { code: error.code } : {}) });
     }
     console.error('API Error:', error);
     return sendJson(res, 500, { error: error.message || 'Error interno del servidor.' });

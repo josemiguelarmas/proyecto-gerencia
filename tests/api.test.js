@@ -261,6 +261,7 @@ async function runTests() {
     await runPrompt2Tests({ token, adminToken, stylistToken, deliveredBox: deliveredBoxRes.body.box });
     await runPrompt3Tests({ adminToken, stylistToken });
     await runPrompt4Tests({ adminToken, stylistToken });
+    await runPrompt5Tests({ adminToken, stylistToken });
 
     console.log('\n======================================================');
     console.log('¡TODAS LAS PRUEBAS DE BACKEND Y ROLES PASARON CON ÉXITO!');
@@ -1047,6 +1048,193 @@ async function runPrompt4Tests({ adminToken, stylistToken }) {
   const movements = (await request('GET', '/api/admin/inventory-movements', null, adminToken)).body.movements;
   assert.ok(movements.some(m => m.type === 'RETURN_IN' && m.refId === retId && m.reason === 'TOO_SMALL'));
   console.log('✓ 61. HU-14: al marcar recibida, el stock de la variante sube 1 y queda el movimiento con el motivo');
+}
+
+async function runPrompt5Tests({ adminToken, stylistToken }) {
+  console.log('\n--- SPRINT 2 · PROMPT 5 ---');
+  const learning = require('../backend/learning');
+  const metrics = require('../backend/metrics');
+  const { evaluateModel } = require('../scripts/evaluate-model');
+  const { seedDemo, resetSeed } = require('../scripts/seed-demo');
+
+  // 62. HU-16: editar nombre y correo con validación y correo único
+  const e = await newClientWithoutPlan();
+  assert.strictEqual((await request('PUT', '/api/account', { email: 'no-es-correo' }, e.token)).status, 400);
+  assert.strictEqual((await request('PUT', '/api/account', { name: 'A' }, e.token)).status, 400);
+  const dup = await request('PUT', '/api/account', { email: 'DEMO@theclothesbox.co' }, e.token);
+  assert.deepStrictEqual([dup.status, dup.body.code], [409, 'EMAIL_EXISTS']);
+  const newEmail = `p5_nuevo_${Date.now()}@test.com`;
+  const edited = await request('PUT', '/api/account', { name: 'Nombre Corregido', email: newEmail }, e.token);
+  assert.strictEqual(edited.status, 200);
+  assert.deepStrictEqual([edited.body.user.name, edited.body.user.email, edited.body.user.emailVerified], ['Nombre Corregido', newEmail, false]);
+  assert.strictEqual((await request('POST', '/api/auth/login', { email: newEmail, password: 'password123' })).status, 200, 'Entra con el correo nuevo');
+  assert.strictEqual((await request('POST', '/api/auth/login', { email: e.email, password: 'password123' })).status, 401);
+  assert.strictEqual((await outboxFor(adminToken, e.email, 'EMAIL_CHANGED')).length, 1, 'Aviso al correo anterior');
+  assert.strictEqual((await outboxFor(adminToken, newEmail, 'EMAIL_VERIFICATION')).length, 1, 'Verificación al correo nuevo');
+  assert.ok(db.data.dataRequests.some(r => r.userId === e.userId && r.type === 'RECTIFICATION'));
+  console.log('✓ 62. HU-16: "Mis datos" edita nombre y correo, valida formato y correo único, y registra la solicitud');
+
+  // 63. HU-16: exportación de datos personales en JSON
+  const exp = await request('GET', '/api/profile/export', null, e.token);
+  assert.strictEqual(exp.status, 200);
+  assert.strictEqual(exp.body.account.email, newEmail);
+  assert.strictEqual(exp.body.account.passwordHash, undefined, 'Sin la contraseña');
+  assert.ok(exp.body.profile && exp.body.profile.measures, 'Incluye perfil y medidas');
+  assert.ok(Array.isArray(exp.body.boxes) && exp.body.boxes.length >= 1 && Array.isArray(exp.body.boxes[0].items));
+  assert.ok(Array.isArray(exp.body.ratings) && Array.isArray(exp.body.consents));
+  assert.ok(db.data.dataRequests.some(r => r.userId === e.userId && r.type === 'EXPORT'));
+  console.log('✓ 63. HU-16: GET /api/profile/export entrega datos personales, perfil, cajas y calificaciones');
+
+  // 64. HU-16: eliminar se bloquea con un cobro pendiente y exige la contraseña
+  const pd = await newClientWithoutPlan();
+  await subscribeWith(pd.token);
+  assert.strictEqual((await request('POST', '/api/account/delete', { password: 'mala' }, pd.token)).status, 403);
+  db.saveSubscription(pd.userId, { status: 'PAST_DUE' });
+  const blocked = await request('POST', '/api/account/delete', { password: 'password123' }, pd.token);
+  assert.deepStrictEqual([blocked.status, blocked.body.code], [409, 'PENDING_CHARGE']);
+  assert.ok(/cobro pendiente/.test(blocked.body.error));
+  db.saveSubscription(pd.userId, { status: 'ACTIVE', dunning: { period: 'x', attempts: 1, nextRetryAt: new Date().toISOString() } });
+  assert.strictEqual((await request('POST', '/api/account/delete', { password: 'password123' }, pd.token)).status, 409, 'Pago en curso también bloquea');
+  assert.strictEqual(db.findUserById(pd.userId).deletedAt, undefined);
+  console.log('✓ 64. HU-16: con cobro pendiente (PAST_DUE o reintento) la cuenta no se elimina y el mensaje lo explica');
+
+  // 65. HU-16: eliminar anonimiza, conserva pagos y facturas, cancela y confirma
+  const d = await newClient();
+  const dEmail = d.email;
+  const invoicesBefore = db.getInvoices(d.userId).length;
+  const deleted = await request('POST', '/api/account/delete', { password: 'password123' }, d.token);
+  assert.strictEqual(deleted.status, 200);
+  const anon = db.findUserById(d.userId);
+  assert.ok(anon.name === 'Usuario eliminado' && anon.email.endsWith('@anonimo.invalid') && anon.passwordHash === null && anon.deletedAt);
+  assert.ok(!db.findUserByEmail(dEmail), 'El correo ya no está');
+  const anonProfile = db.getProfile(d.userId);
+  assert.ok(anonProfile.deleted && !anonProfile.measures && !anonProfile.styles, 'Perfil y medidas anonimizados');
+  const anonSub = db.data.subscriptions.find(x => x.userId === d.userId);
+  assert.ok(anonSub.status === 'CANCELLED' && !anonSub.paymentToken && !anonSub.cardLast4);
+  assert.ok(db.getPayments(d.userId).length >= 1, 'Conserva pagos');
+  const keptInvoices = db.getInvoices(d.userId);
+  assert.ok(keptInvoices.length === invoicesBefore && keptInvoices.length >= 1 && keptInvoices[0].buyer.docNumber === FISCAL.docNumber, 'Conserva facturas con sus datos fiscales');
+  assert.ok(db.getUserBoxes(d.userId).every(b => b.address === 'Dirección anonimizada'));
+  assert.strictEqual((await request('GET', '/api/profile', null, d.token)).status, 401, 'La sesión deja de valer');
+  assert.strictEqual((await request('POST', '/api/auth/login', { email: dEmail, password: 'password123' })).status, 401);
+  assert.strictEqual((await outboxFor(adminToken, dEmail, 'ACCOUNT_DELETED')).length, 1);
+  const dr = await request('GET', '/api/admin/data-requests', null, adminToken);
+  assert.strictEqual(dr.status, 200);
+  const deletion = dr.body.requests.find(r => r.userId === d.userId && r.type === 'DELETION');
+  assert.ok(deletion && Number.isInteger(deletion.responseMs) && deletion.status === 'COMPLETED');
+  assert.ok(dr.body.summary.some(t => t.type === 'DELETION' && t.blocked >= 2 && t.deadlineBusinessDays === 15));
+  assert.strictEqual((await request('GET', '/api/admin/data-requests', null, e.token)).status, 403);
+  console.log('✓ 65. HU-16: eliminar anonimiza nombre, correo, perfil y medidas; conserva pagos y facturas; cancela y confirma');
+
+  // 66. HU-11: calificación de estilo baja reduce el peso de los atributos, con piso
+  const product = db.getProductById('prod-13');
+  const prof = { styles: [...product.styles], occasions: [...product.occasions], fit: product.fit };
+  const base = scoreProduct(prof, product).score;
+  assert.strictEqual(learning.applyRating(prof, product, 4), false, 'Una calificación alta no penaliza');
+  assert.strictEqual(learning.applyRating(prof, product, 2), true);
+  const once = scoreProduct(prof, product).score;
+  assert.ok(once < base, 'Baja el puntaje');
+  for (let i = 0; i < 20; i++) learning.applyRating(prof, product, 1);
+  Object.values(prof.attributeWeights).forEach(bucket => Object.values(bucket).forEach(w => assert.ok(w >= config.LEARNING.floor, 'Nunca baja del piso')));
+  assert.ok(scoreProduct(prof, product).score > 0, 'El atributo no se anula');
+  console.log(`✓ 66. HU-11: estilo ≤ 2 reduce el peso de los atributos (puntaje ${base} → ${once}) con piso de ${config.LEARNING.floor}`);
+
+  // 67. HU-11: correcciones del estilista como ejemplos, ingestFeedback idempotente y rulesVersion
+  const s = await newClient();
+  const sBox = db.getBoxById(s.boxId);
+  assert.strictEqual(sBox.rulesVersion, config.RULES_VERSION, 'La caja guarda rulesVersion');
+  const removedId = sBox.itemIds[0];
+  const alt = (await request('GET', `/api/stylist/boxes/${s.boxId}/alternatives?itemId=${removedId}`, null, stylistToken)).body.alternatives[0];
+  assert.strictEqual((await request('POST', `/api/stylist/boxes/${s.boxId}/replace`, { itemId: removedId, newProductId: alt.productId, reason: 'Prefiere otro estilo' }, stylistToken)).status, 200);
+  const sProfile = db.getProfile(s.userId);
+  const removedP = db.getProductById(removedId);
+  const addedP = db.getProductById(alt.productId);
+  const removedBefore = scoreProduct(sProfile, removedP).score;
+  const addedBefore = scoreProduct(sProfile, addedP).score;
+  const ingest = await request('POST', '/api/admin/jobs/ingest-feedback', {}, adminToken);
+  assert.strictEqual(ingest.status, 200);
+  assert.ok(ingest.body.correctionsProcessed >= 1 && ingest.body.profilesUpdated >= 1 && ingest.body.rulesVersion === config.RULES_VERSION);
+  const learned = db.getProfile(s.userId);
+  assert.ok(scoreProduct(learned, removedP).score < removedBefore, 'La prenda reemplazada penaliza');
+  assert.ok(scoreProduct(learned, addedP).score > addedBefore, 'La prenda nueva suma');
+  assert.deepStrictEqual([learned.rulesVersion, learned.learningRevision], [config.RULES_VERSION, 1], 'El perfil guarda rulesVersion y revisión');
+  const again = await request('POST', '/api/admin/jobs/ingest-feedback', {}, adminToken);
+  assert.deepStrictEqual([again.body.ratingsProcessed, again.body.correctionsProcessed], [0, 0], 'No aprende dos veces lo mismo');
+  assert.strictEqual((await request('POST', '/api/admin/jobs/ingest-feedback', {}, s.token)).status, 403);
+  console.log('✓ 67. HU-11: ingestFeedback usa las correcciones (la reemplazada penaliza, la nueva suma), es idempotente y versiona');
+
+  // 68. HU-11: evaluación antes y después con perfiles sintéticos
+  const evaluation = evaluateModel({ count: 40 });
+  assert.ok(evaluation.afterAvg > evaluation.beforeAvg, `Mejora la calificación simulada: ${evaluation.beforeAvg} → ${evaluation.afterAvg}`);
+  assert.ok(evaluation.improvedProfiles > evaluation.worsenedProfiles);
+  console.log(`✓ 68. HU-11: scripts/evaluate-model.js reporta calificación simulada ${evaluation.beforeAvg} antes y ${evaluation.afterAvg} después`);
+
+  // 69. HU-17: cálculo de indicadores del mes, filtros y alerta de churn
+  const at = iso => new Date(iso).toISOString();
+  const fixture = {
+    subscriptions: [
+      ...Array.from({ length: 8 }, (_, i) => ({ plan: 'esencial', history: [{ type: 'START', plan: 'esencial', at: at(`2026-09-0${i + 1}T12:00:00`) }] })),
+      { plan: 'estilo', history: [{ type: 'START', plan: 'estilo', at: at('2026-09-10T12:00:00') }] },
+      { plan: 'estilo', history: [{ type: 'START', plan: 'estilo', at: at('2026-09-11T12:00:00') }, { type: 'CANCEL', plan: 'estilo', at: at('2026-10-05T12:00:00') }] },
+      { plan: 'esencial', history: [{ type: 'START', plan: 'esencial', at: at('2026-09-12T12:00:00') }, { type: 'CANCEL', plan: 'esencial', at: at('2026-10-20T12:00:00') }] },
+      { plan: 'estilo', history: [{ type: 'START', plan: 'estilo', at: at('2026-10-15T12:00:00') }] },
+      { plan: 'esencial', startedAt: at('2026-08-01T12:00:00'), cancelledAt: at('2026-08-20T12:00:00') }
+    ],
+    cancellations: [
+      { plan: 'estilo', reason: 'precio', createdAt: at('2026-10-05T12:00:00') },
+      { plan: 'esencial', reason: null, createdAt: at('2026-10-20T12:00:00') }
+    ],
+    boxes: [
+      { id: 'b1', plan: 'esencial', itemIds: ['a', 'b', 'c'], deliveredAt: at('2026-10-10T12:00:00') },
+      { id: 'b2', plan: 'estilo', itemIds: ['a', 'b', 'c', 'd', 'e'], deliveredAt: at('2026-10-11T12:00:00') }
+    ],
+    ratings: [
+      { boxId: 'b1', score: 4, createdAt: at('2026-10-12T12:00:00') },
+      { boxId: 'b2', score: 2, createdAt: at('2026-10-12T12:00:00') },
+      { boxId: 'b2', score: 5, createdAt: at('2026-09-30T12:00:00') }
+    ],
+    returns: [{ boxId: 'b2', createdAt: at('2026-10-13T12:00:00') }, { boxId: 'b1', createdAt: at('2026-10-14T12:00:00') }]
+  };
+  const oct = metrics.computeKpis(fixture, { month: '2026-10', threshold: 9, now: new Date(2026, 10, 4) });
+  assert.deepStrictEqual(
+    [oct.activeAtStart, oct.newSubscribers, oct.cancellations, oct.churnPct, oct.activeSubscribers, oct.averageRating, oct.sizeReturnPct],
+    [11, 1, 2, 18.2, 10, 3, 25],
+    'Churn = 2 cancelaciones / 11 activos al inicio'
+  );
+  assert.deepStrictEqual(oct.cancellationReasons.reasons.find(r => r.key === 'precio').count, 1);
+  assert.strictEqual(oct.cancellationReasons.unanswered, 1);
+  assert.strictEqual(oct.churnAlert.active, true, '18,2 % supera el 9 %');
+  assert.ok(/supera el umbral de 9 %/.test(oct.churnAlert.message));
+  const octEstilo = metrics.computeKpis(fixture, { month: '2026-10', plan: 'estilo', threshold: 9, now: new Date(2026, 10, 4) });
+  assert.deepStrictEqual([octEstilo.activeAtStart, octEstilo.cancellations, octEstilo.churnPct, octEstilo.newSubscribers, octEstilo.sizeReturnPct], [2, 1, 50, 1, 20], 'Filtro por plan');
+  assert.strictEqual(metrics.computeKpis(fixture, { month: '2026-10', threshold: 20, now: new Date(2026, 10, 4) }).churnAlert.active, false, 'Bajo el umbral no alerta');
+  const sep = metrics.computeKpis(fixture, { month: '2026-09', threshold: 9, now: new Date(2026, 10, 4) });
+  assert.deepStrictEqual([sep.activeAtStart, sep.newSubscribers, sep.churnPct], [0, 11, null], 'Sin activos al inicio no hay churn');
+  console.log('✓ 69. HU-17: activos, altas, churn (cancelaciones/activos al inicio), calificación, % devoluciones, motivos, filtros y alerta');
+
+  // 70. HU-17: endpoint, umbral configurable desde el panel y datos de demostración
+  const seeded = seedDemo(db, { count: 100 });
+  assert.strictEqual(seeded.users, 100);
+  assert.strictEqual(db.data.users.filter(u => u.seedDemo).length, 100, 'Marcados como datos de prueba');
+  assert.ok(db.data.users.filter(u => u.seedDemo).every(u => u.email.endsWith('@seed.theclothesbox.test') && u.passwordHash === null));
+  const kpis = await request('GET', '/api/admin/kpis', null, adminToken);
+  assert.strictEqual(kpis.status, 200);
+  assert.ok(kpis.body.months.length === 6 && kpis.body.month === kpis.body.months[0]);
+  assert.ok(kpis.body.activeSubscribers >= 80 && kpis.body.churnAlert.threshold === 9);
+  const lastMonth = await request('GET', `/api/admin/kpis?month=${kpis.body.months[1]}&plan=esencial`, null, adminToken);
+  assert.strictEqual(lastMonth.body.plan, 'esencial');
+  assert.strictEqual((await request('GET', '/api/admin/kpis?month=octubre', null, adminToken)).status, 400);
+  assert.strictEqual((await request('PUT', '/api/admin/settings/churn-threshold', { value: 0 }, adminToken)).status, 400);
+  assert.strictEqual((await request('PUT', '/api/admin/settings/churn-threshold', { value: 0.1 }, adminToken)).body.threshold, 0.1);
+  const strict = await request('GET', `/api/admin/kpis?month=${kpis.body.months[1]}`, null, adminToken);
+  assert.strictEqual(strict.body.churnAlert.threshold, 0.1);
+  assert.strictEqual(strict.body.churnAlert.active, strict.body.churnPct > 0.1, 'La alerta usa el umbral guardado');
+  const batch = await request('POST', '/api/admin/boxes/generate-batch', {}, adminToken);
+  assert.ok(batch.body.skipped.filter(x => x.reason === 'Dato de prueba').length === 100, 'El batch no arma cajas para datos de prueba');
+  assert.strictEqual((await request('GET', '/api/admin/kpis', null, e.token)).status, 403);
+  assert.strictEqual(resetSeed(db), 100);
+  await request('PUT', '/api/admin/settings/churn-threshold', { value: 9 }, adminToken);
+  console.log(`✓ 70. HU-17: /api/admin/kpis con filtros, umbral editable y seed de ${seeded.users} usuarios sintéticos (${seeded.cancellations} cancelaciones)`);
 }
 
 async function newClientWithoutPlan() {

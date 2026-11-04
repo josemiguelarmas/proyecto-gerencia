@@ -99,13 +99,20 @@ const STYLE_NAMES = {
 };
 const OCCASION_NAMES = { clase: 'el día a día', fiesta: 'salidas', entrevista: 'entrevistas' };
 
+// HU-11: factor aprendido de un atributo (estilo, ocasión o corte). 1 si no hay feedback.
+function learnedFactor(profile, kind, value) {
+  const factors = (profile.attributeWeights || {})[kind] || {};
+  return Number.isFinite(factors[value]) ? factors[value] : 1;
+}
+
 // Puntaje de afinidad y sus motivos. styleWeights (HU-03, juego de estilos ocultos) suma un bono.
+// HU-11: cada coincidencia se multiplica por el factor aprendido del feedback (attributeWeights).
 function scoreProduct(profile, p) {
   let score = 0;
   const matchedStyles = [];
   (profile.styles || []).forEach((st, idx) => {
     if (p.styles.includes(st)) {
-      score += (3 - idx) * 3;
+      score += (3 - idx) * 3 * learnedFactor(profile, 'style', st);
       matchedStyles.push(st);
     }
   });
@@ -113,9 +120,9 @@ function scoreProduct(profile, p) {
   const weightBonus = p.styles.reduce((acc, st) => acc + (Number(weights[st]) || 0), 0) * 2;
   score += weightBonus;
   const matchedOccasions = (profile.occasions || []).filter(o => p.occasions.includes(o));
-  score += matchedOccasions.length * 2.5;
+  score += matchedOccasions.reduce((acc, o) => acc + 2.5 * learnedFactor(profile, 'occasion', o), 0);
   const fitMatch = p.fit === profile.fit;
-  if (fitMatch) score += 1.5;
+  if (fitMatch) score += 1.5 * learnedFactor(profile, 'cut', p.fit);
   return {
     score: Math.round(score * 10) / 10,
     reasons: { styles: matchedStyles, occasions: matchedOccasions, fitMatch, styleWeightBonus: Math.round(weightBonus * 10) / 10 }

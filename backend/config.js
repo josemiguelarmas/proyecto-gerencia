@@ -78,6 +78,13 @@ module.exports = {
   ISSUER: { name: 'The Clothes Box S.A.S. (SIMULADO)', nit: '900000000-0', city: 'Cali' },
   FISCAL_DOC_TYPES: { CC: 'Cédula de ciudadanía', CE: 'Cédula de extranjería', NIT: 'NIT', PA: 'Pasaporte' },
   RETURN_WINDOW_BUSINESS_DAYS,
+  // HU-11: versión de las reglas del motor y límites del aprendizaje por feedback.
+  RULES_VERSION: 'reglas-v2',
+  LEARNING: { floor: 0.3, cap: 2, lowStyleScore: 2, lowRatingFactor: 0.6, removedFactor: 0.9, rejectedFactor: 0.95, addedFactor: 1.1, addedStyleBonus: 0.25 },
+  // HU-17: umbral de churn mensual por defecto (%), editable desde el panel.
+  CHURN_THRESHOLD_DEFAULT: 9,
+  // HU-16: plazos de la Ley 1581 para responder (días hábiles): consultas 10, reclamos 15.
+  DATA_REQUEST_DEADLINES: { EXPORT: 10, RECTIFICATION: 15, DELETION: 15 },
   RETURN_CONDITIONS: [
     `El cambio se pide dentro de ${RETURN_WINDOW_BUSINESS_DAYS} días hábiles desde la entrega de la caja.`,
     'Solo aplica a problemas de talla o ajuste (muy pequeña, muy grande o de proporciones).',

@@ -81,6 +81,11 @@ TCB.api = (() => {
     products: {
       list: () => request('/api/products')
     },
+    account: {
+      update: data => request('/api/account', { method: 'PUT', body: data }),
+      remove: password => request('/api/account/delete', { method: 'POST', body: { password } }),
+      exportData: () => request('/api/profile/export')
+    },
     policy: () => request('/api/policy'),
     config: () => request('/api/config'),
     payments: {
@@ -144,6 +149,10 @@ TCB.api = (() => {
       runBilling: now => request('/api/admin/jobs/recurring-billing', { method: 'POST', body: { now } }),
       invoices: () => request('/api/admin/invoices'),
       dispatch: () => request('/api/admin/dispatch'),
+      dataRequests: () => request('/api/admin/data-requests'),
+      ingestFeedback: () => request('/api/admin/jobs/ingest-feedback', { method: 'POST' }),
+      kpis: ({ month, plan } = {}) => request(`/api/admin/kpis?${new URLSearchParams({ ...(month ? { month } : {}), ...(plan ? { plan } : {}) })}`),
+      setChurnThreshold: value => request('/api/admin/settings/churn-threshold', { method: 'PUT', body: { value } }),
       inventoryMovements: () => request('/api/admin/inventory-movements'),
       runInvoiceRetries: now => request('/api/admin/jobs/invoice-retries', { method: 'POST', body: { now } })
     }
