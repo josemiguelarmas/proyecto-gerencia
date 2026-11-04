@@ -6,6 +6,7 @@ const config = require('./config');
 const mail = require('./mail');
 const { runReviewReminders } = require('./jobs');
 const billing = require('./billing');
+const logistics = require('./logistics');
 const payments = require('./payments');
 
 // Edad cumplida a partir de una fecha YYYY-MM-DD. Devuelve null si la fecha no es válida.
@@ -202,6 +203,8 @@ async function handleApiRequest(req, res, pathname) {
         cutoffDay: config.SUBSCRIPTION_CUTOFF_DAY,
         fiscalDocTypes: config.FISCAL_DOC_TYPES,
         paymentProvider: payments.name,
+        returnWindowBusinessDays: config.RETURN_WINDOW_BUSINESS_DAYS,
+        returnConditions: config.RETURN_CONDITIONS,
         testCards: payments.name === 'simulated' ? payments.testCards : []
       });
     }
@@ -591,12 +594,19 @@ async function handleApiRequest(req, res, pathname) {
         if (UNAPPROVED_STATUSES.includes(target.status)) {
           return sendJson(res, 409, { error: NOT_APPROVED_ERROR });
         }
-        const updates = { status };
-        if (status === 'DELIVERED') {
-          updates.deliveredAt = new Date().toISOString();
-        }
-        const updated = db.updateBox(boxId, updates);
+        // HU-09: despachar genera la guía, descuenta stock y avisa al suscriptor.
+        const updated = logistics.advanceBox(target, status);
         return sendJson(res, 200, { success: true, box: updated });
+      }
+
+      // HU-09: cajas por despachar con lista de picking y empaque
+      if (pathname === '/api/admin/dispatch' && req.method === 'GET') {
+        return sendJson(res, 200, logistics.dispatchQueue());
+      }
+
+      // HU-09/HU-14: movimientos de inventario (despachos, cambios y reingresos)
+      if (pathname === '/api/admin/inventory-movements' && req.method === 'GET') {
+        return sendJson(res, 200, { movements: [...db.data.inventoryMovements].reverse().slice(0, 100) });
       }
 
       // Admin Returns (List & Update)
@@ -616,6 +626,8 @@ async function handleApiRequest(req, res, pathname) {
         if (!updated) {
           return sendJson(res, 404, { error: 'Solicitud de devolución no encontrada.' });
         }
+        // HU-14: al recibir la prenda, su variante reingresa al inventario (una sola vez).
+        if (status === 'RECEIVED' || status === 'COMPLETED') logistics.receiveReturn(updated);
         return sendJson(res, 200, { success: true, returnRequest: updated });
       }
 
@@ -729,6 +741,9 @@ async function handleApiRequest(req, res, pathname) {
         cycle: currentBox.cycle,
         status: currentBox.status,
         trackingNumber: currentBox.trackingNumber || null,
+        carrier: currentBox.carrier || null,
+        shippedAt: currentBox.shippedAt || null,
+        trackingEvents: currentBox.trackingEvents || [],
         plan: currentBox.plan,
         itemsCount: (currentBox.itemIds || []).length,
         address: currentBox.address,
@@ -761,30 +776,18 @@ async function handleApiRequest(req, res, pathname) {
         return sendJson(res, 404, { error: 'No tienes ninguna caja activa.' });
       }
 
-      let nextStatus = currentBox.status;
-      let deliveredAt = currentBox.deliveredAt;
-
       // HU-07: el despacho se bloquea mientras el estilista no apruebe la caja
       if (UNAPPROVED_STATUSES.includes(currentBox.status)) {
         return sendJson(res, 409, { error: NOT_APPROVED_ERROR });
       }
 
-      if (currentBox.status === 'APPROVED') {
-        // HU-12: en pausa no se despacha la caja de ese mes
-        if (db.getSubscription(authUser.id).status === 'PAUSED') {
-          return sendJson(res, 409, { error: 'Tu suscripción está en pausa: esta caja no se despacha hasta que reanudes.' });
-        }
-        nextStatus = 'PREPARING';
-      } else if (currentBox.status === 'CREATED' || currentBox.status === 'PREPARING') {
-        nextStatus = 'SHIPPED';
-      } else if (currentBox.status === 'SHIPPED') {
-        nextStatus = 'DELIVERED';
-        deliveredAt = new Date().toISOString();
-      } else if (currentBox.status === 'DELIVERED') {
+      const NEXT = { APPROVED: 'PREPARING', CREATED: 'SHIPPED', PREPARING: 'SHIPPED', SHIPPED: 'DELIVERED' };
+      if (!NEXT[currentBox.status]) {
         return sendJson(res, 200, { message: 'La caja ya fue entregada.', box: currentBox });
       }
 
-      const updated = db.updateBox(currentBox.id, { status: nextStatus, deliveredAt });
+      // HU-09/HU-12: pausa y pago del ciclo se validan en logistics.advanceBox (409)
+      const updated = logistics.advanceBox(currentBox, NEXT[currentBox.status]);
       return sendJson(res, 200, { success: true, status: updated.status, box: updated });
     }
 
@@ -996,7 +999,9 @@ async function handleApiRequest(req, res, pathname) {
           const prod = db.getProductById(id);
           if (prod) {
             const isReturned = returnedProductIds.includes(prod.id);
-            const fit = calculateFit(profile, prod);
+            // HU-09: la talla recibida es la que se despachó, no la que daría el perfil ya recalibrado.
+            const shipped = (box.shippedVariants || []).find(v => v.productId === prod.id);
+            const fit = shipped ? { ...calculateFit(profile, prod), size: shipped.size } : calculateFit(profile, prod);
             returnableGarments.push({
               ...prod,
               cut: prod.fit,
@@ -1004,71 +1009,58 @@ async function handleApiRequest(req, res, pathname) {
               cycle: box.cycle,
               deliveredAt: box.deliveredAt,
               fit,
-              isReturned
+              isReturned,
+              // HU-14: plazo de cambio calculado en el backend
+              returnDeadline: logistics.returnDeadline(box.deliveredAt),
+              withinWindow: !box.deliveredAt || new Date() <= new Date(logistics.returnDeadline(box.deliveredAt))
             });
           }
         });
       });
 
+      const garmentFor = r => returnableGarments.find(g => g.id === r.productId && g.boxId === r.boxId);
       return sendJson(res, 200, {
-        returns: userReturns,
+        returns: userReturns.map(r => ({
+          ...r,
+          productName: garmentFor(r)?.name,
+          brand: garmentFor(r)?.brandName,
+          currentSize: garmentFor(r)?.fit.size
+        })),
         returnableGarments
       });
     }
 
-    // Returns POST
+    // Returns POST — HU-14: plazo, guía inversa, stock de la talla pedida y alternativa sin stock
     if (pathname === '/api/returns' && req.method === 'POST') {
-      const { boxId, productId, reason, requestedSize, notes, pickupAddress, scheduledPickupDate } = await parseJsonBody(req);
-
-      // 1. REGLA ESTRICTA DE NEGOCIO: Motivo exclusivamente de TALLA / AJUSTE (Requisitos 15 y 16)
-      const ALLOWED_REASONS = ['TOO_SMALL', 'TOO_LARGE', 'FIT_ISSUE'];
-      if (!ALLOWED_REASONS.includes(reason)) {
-        return sendJson(res, 400, {
-          error: 'Motivo de devolución no permitido. En The Clothes Box los cambios gratuitos están reservados exclusivamente a problemas de talla o ajuste (TOO_SMALL, TOO_LARGE, FIT_ISSUE).'
-        });
+      const body = await parseJsonBody(req);
+      let ret;
+      try {
+        ret = logistics.requestReturn(authUser.id, body);
+      } catch (err) {
+        if (err.code === 'RETURN_WINDOW_EXPIRED') {
+          return sendJson(res, 422, { error: err.message, code: err.code, deadline: err.deadline, conditions: err.conditions });
+        }
+        if (err.code === 'NO_STOCK_IN_SIZE') {
+          return sendJson(res, 409, { error: err.message, code: err.code, options: err.options });
+        }
+        throw err;
       }
-
-      if (!requestedSize) {
-        return sendJson(res, 400, { error: 'Debes seleccionar la talla de reemplazo solicitada.' });
-      }
-
-      // 2. Verificar que la prenda pertenezca a una caja entregada del usuario
-      const box = db.getBoxById(boxId);
-      if (!box || box.userId !== authUser.id) {
-        return sendJson(res, 404, { error: 'Caja no encontrada.' });
-      }
-      if (box.status !== 'DELIVERED' && box.status !== 'RATED') {
-        return sendJson(res, 403, { error: 'No puedes solicitar devolución de una prenda que aún no ha sido entregada.' });
-      }
-      if (!box.itemIds.includes(productId)) {
-        return sendJson(res, 400, { error: 'La prenda seleccionada no corresponde a esta caja.' });
-      }
-
-      // 3. Crear solicitud
-      const ret = db.createReturn(authUser.id, {
-        boxId,
-        productId,
-        reason,
-        requestedSize,
-        notes,
-        pickupAddress,
-        scheduledPickupDate
-      });
 
       // Recalibración del perfil por ajuste
       const profile = db.getProfile(authUser.id);
-      const prod = db.getProductById(productId);
+      const prod = db.getProductById(ret.productId);
       if (profile && prod) {
         profile.brandAdj = profile.brandAdj || {};
-        profile.brandAdj[prod.brandId] = (profile.brandAdj[prod.brandId] || 0) + (reason === 'TOO_SMALL' ? 0.5 : -0.5);
+        profile.brandAdj[prod.brandId] = (profile.brandAdj[prod.brandId] || 0) + (ret.reason === 'TOO_SMALL' ? 0.5 : -0.5);
         db.saveProfile(authUser.id, profile);
       }
 
-      return sendJson(res, 201, {
-        success: true,
-        message: 'Solicitud de cambio de talla registrada con éxito. Recogeremos la prenda sin costo en tu dirección en Cali.',
-        returnRequest: ret
-      });
+      const messages = {
+        EXCHANGE_SIZE: `Solicitud registrada. Recogeremos la prenda sin costo (guía ${ret.returnTrackingNumber}) y te enviaremos la talla ${ret.requestedSize}.`,
+        EQUIVALENT: `Solicitud registrada. Recogeremos la prenda (guía ${ret.returnTrackingNumber}) y te enviaremos "${ret.replacementName}" en talla ${ret.requestedSize}.`,
+        RETURN_ONLY: `Devolución registrada. Recogeremos la prenda sin costo (guía ${ret.returnTrackingNumber}).`
+      };
+      return sendJson(res, 201, { success: true, message: messages[ret.resolution], returnRequest: ret });
     }
 
     // HU-08/HU-12: suscripción actual con sus pagos y facturas
