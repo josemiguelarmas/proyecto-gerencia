@@ -1,6 +1,6 @@
 # Evidencias Sprint 2. The Clothes Box
 
-Comando de prueba. `npm test` (equivale a `node tests/api.test.js`). Resultado al cierre del Prompt 2: **42 de 42 en verde** (15 originales + 12 del Prompt 1 + 15 del Prompt 2).
+Comando de prueba. `npm test` (equivale a `node tests/api.test.js`). Resultado al cierre del Prompt 3: **53 de 53 en verde** (15 originales + 12 del Prompt 1 + 15 del Prompt 2 + 11 del Prompt 3).
 
 Verificación manual. Servidor en http://localhost:3000 con una copia de la base, recorriendo cada pantalla en el navegador (detalle en cada HU).
 
@@ -187,7 +187,7 @@ Escenarios Gherkin cubiertos. **3 de 3** (antes 2,5).
 
 **Pendientes (decisión del equipo).**
 - La logística de 12.000 COP por caja y el margen mínimo del 10 % son supuestos. Con el mayorista al 30 % el tope es alcanzable. Si el mayorista real es mayor (por ejemplo, 50 % del precio de venta), ninguna caja cabe en el tope y el motor las marca como `withinCap: false`. **Esto es una señal sobre la viabilidad del precio del plan que conviene revisar.**
-- El batch usa la suscripción provisional de HU-13 (TODO en backend/routes.js L455). Cuando exista HU-08, debe usar las suscripciones pagadas.
+- ~~El batch usa la suscripción provisional de HU-13.~~ Resuelto en el Prompt 3: el batch usa las suscripciones pagadas (ver sesión 3).
 
 ### HU-07 Validación del estilista
 
@@ -251,3 +251,129 @@ Detalles.
 | Evidencias Sprint 2 Prompt 2 | Este archivo |
 
 Igual que en la sesión 1, los archivos compartidos mezclan las cuatro HU dentro de los mismos bloques de cambios. Van en el primer commit (HU-05) y las tablas de arriba dicen qué líneas pertenecen a cada HU.
+
+
+---
+
+## Sesión 3. Prompt 3. Suscripción, pagos y facturación (04/11/2026)
+
+### Cambios transversales
+
+| Cambio | Archivos | Motivo |
+|---|---|---|
+| Módulo de suscripción y cobro | backend/billing.js (nuevo) | Concentra la máquina de estados, los cobros, la conciliación y la facturación. Las rutas solo llaman a sus funciones, y las pruebas pueden pasarle una fecha (`now`) para simular el paso del tiempo. |
+| Adaptadores simulados | backend/payments/index.js (`PAYMENT_PROVIDER=simulated`) · backend/invoicing/index.js (`INVOICING_PROVIDER=simulated`) | Igual que el correo: la interfaz es la que tendría un proveedor real y el proveedor se elige por variable de entorno. Todo lo que generan dice SIMULADO. Sin dependencias nuevas (HMAC y hashes con `crypto` de Node). |
+| La suscripción ya no se deriva del perfil | backend/database.js L415 (`getSubscription`) | Antes un perfil completo contaba como ACTIVE (TODO de HU-13). Ahora la suscripción nace con el primer pago aprobado; sin registro el estado es NONE. |
+| Suscripción del cliente demo | backend/database.js L102 · backend/data/db.json | demo@theclothesbox.co queda ACTIVE con la tarjeta de prueba 4242 y datos fiscales de ejemplo, para que la demo siga funcionando sin pagar. Se crea sola al arrancar, como la estilista. |
+| Batch de cajas solo para suscripciones al día | backend/routes.js L504 | Omite a quien está en pausa, en mora o con un cobro en reintento, con el motivo en el reporte. Cierra el pendiente de HU-06. |
+| Jobs de cobro y reintento de facturas | backend/jobs.js L38 | Corren al arrancar y cada hora junto al recordatorio de HU-10. Solo actúan sobre lo vencido, así que correrlos seguido no cobra dos veces. |
+| Estilos de avisos | frontend/css/screens.css (final) | Las clases `banner--info`, `banner--warn` y `banner--danger` se usaban en varias pantallas pero no tenían estilo. Se definieron con los colores de tokens.css porque los avisos de pago, pausa y mora deben verse. Las pantallas viejas que ya las usaban también se ven mejor. |
+| Ajuste de pruebas viejas 26, 27 y del ayudante `newClient` | tests/api.test.js L404, L421 y L447 | Esas pruebas cancelaban o generaban cajas para usuarios con la suscripción derivada del perfil. Ahora primero pagan con la tarjeta 4242 (`subscribeWith`, L84). La intención de cada prueba no cambia. |
+
+### HU-08 Plan y pago recurrente
+
+Escenarios Gherkin cubiertos. **3 de 3** (antes 0).
+
+| Escenario | Código | Prueba |
+|---|---|---|
+| Pago aprobado: cobra COP 129.900 (Esencial) o COP 199.900 (Estilo), deja la suscripción ACTIVE y manda la confirmación a la bandeja de salida | backend/billing.js L264 (`subscribe`) y L227 (`chargeSubscription`) · backend/routes.js L1093 · frontend/js/views/subscribeView.js | Pruebas 43 y 44 |
+| Pago rechazado: responde el motivo (402) y no activa | backend/payments/index.js L90 (`charge`) · backend/billing.js L288 | Prueba 45 |
+| Cobro recurrente que falla: reintenta a 1, 3 y 5 días, pasa a PAST_DUE y avisa para actualizar el medio de pago | backend/billing.js L338 (`billOne`) y L397 (`runRecurringBilling`) · backend/config.js L64 (`PAYMENT_RETRY_DAYS`) · backend/routes.js L552 (endpoint manual) · actualizar tarjeta: backend/billing.js L422 y backend/routes.js L1110 | Prueba 46 |
+| Pagos con comisión del 3,5 %, webhook con firma HMAC y conciliación; reporte de comisión en el panel | backend/billing.js L192 (`processPaymentWebhook`) y L507 (`paymentsReport`) · backend/payments/index.js L123 y L131 · backend/routes.js L210 (webhook) y L542 · frontend/js/views/adminView.js L499 (pestaña Pagos) | Prueba 47 |
+
+Detalles.
+- **Interfaz del adaptador.** `tokenize`, `charge` con llave de idempotencia, `buildWebhook` y `verifyWebhook` (HMAC-SHA256 con `PAYMENT_WEBHOOK_SECRET`). `describeToken` devuelve marca y últimos 4.
+- **Tarjetas de prueba** (backend/payments/index.js L9). 4242 4242 4242 4242 aprueba. 4000 0000 0000 0002 rechaza con "Fondos insuficientes". 4000 0000 0000 0341 aprueba el primer cobro y rechaza los recurrentes. Cualquier otra tarjeta válida (Luhn) aprueba.
+- **Datos de tarjeta.** El número y el CVV llegan solo a `POST /api/payments/tokenize` (backend/routes.js L1087), que los valida y devuelve un token. No se guardan ni se registran. La suscripción guarda token, marca y últimos 4, y el token no se devuelve al cliente (`publicSubscription`, backend/billing.js L63). La prueba 44 busca el número completo y el CVV dentro de la base y no los encuentra. El formulario borra número, vencimiento y CVV después de tokenizar.
+- **Idempotencia.** Cada cobro tiene una llave: `initial_<usuario>_<fecha>_<token>`, `recurring_<suscripción>_<periodo>` y `..._r<n>` para cada reintento. La pasarela simulada y la colección `payments` devuelven el mismo resultado si la llave se repite. La prueba 46 corre el cobro varias veces y verifica que hay exactamente un pago por intento.
+- **Reintentos.** Mientras se reintenta, la suscripción sigue ACTIVE con `dunning` (fecha del primer fallo, intentos, próximo reintento) y el cliente ve el aviso. Al fallar el último reintento pasa a PAST_DUE y se envía `PAYMENT_PAST_DUE`. Con otra tarjeta el cobro pendiente se hace en el acto y vuelve a ACTIVE.
+- **Conciliación.** Cada pago nace con conciliación PENDING. El proveedor simulado entrega su webhook firmado apenas cobra y pasa por la misma verificación que el endpoint. Si estado y monto coinciden queda OK; si no, MISMATCH con el detalle. Una firma inválida responde 401.
+- **Pantalla.** #/suscripcion (frontend/js/views/subscribeView.js): plan, tarjeta y datos fiscales, con el aviso "Pago SIMULADO" y las tarjetas de prueba. Al terminar el quiz, si no hay suscripción pagada, la app lleva a esta pantalla (frontend/js/views/onboardingView.js L510).
+- **Verificación manual.**
+  - **Rechazo.** Con un cliente nuevo pagué con 0002. La pantalla mostró "El pago fue rechazado: Fondos insuficientes. Tu suscripción no se activó." y borró los datos de la tarjeta.
+  - **Aprobación.** Con 4242 llevó a "Mi Caja". El perfil mostró "Plan Esencial · COP 129.900/mes · Activa · Visa •••• 4242 (SIMULADO) · Próximo cobro: 4 de diciembre de 2026".
+  - **Mora.** Un cliente con 0341. En Panel → Pagos ejecuté el cobro con fecha simulada 5/12/2026: "1 aprobados · 1 rechazados con reintento programado". Con los días 6, 8 y 10 quedó en pago pendiente. Como ese cliente vi el aviso rojo, actualicé la tarjeta a 4242 y volvió a Activa con el mensaje "Pago aprobado con Visa terminada en 4242".
+  - **Reporte.** Panel → Pagos muestra cobrado, comisión, neto, conciliados y la tabla por mes.
+  - **Celular.** La pantalla de pago a 375 px no tiene scroll horizontal.
+
+**Pendientes.**
+- **Tokenización en el navegador.** Con una pasarela real (por ejemplo, Wompi), la tarjeta va del navegador a la pasarela y el backend solo recibe el token. Aquí el backend simula ese paso. Al conectar la pasarela real hay que mover la tokenización al navegador.
+- **Pagos durante la mora (decisión del equipo).** Mientras se reintenta un cobro no se generan cajas nuevas (el batch la omite). Falta definir si una caja ya aprobada se despacha durante los reintentos. Hoy solo se bloquea el despacho en pausa.
+- **Paso del quiz al pago.** No recorrí el quiz completo a mano en esta sesión: la pantalla de pago la abrí directamente. El cambio en onboardingView.js es la redirección al terminar.
+
+### HU-12 Pausar, cambiar plan o cancelar
+
+Escenarios Gherkin cubiertos. **3 de 3** (antes solo en el prototipo js/screens/plan.js).
+
+| Escenario | Código | Prueba |
+|---|---|---|
+| Pausar 1 mes: no cobra ni despacha ese mes y se reanuda sola | backend/billing.js L448 (`pause`), L459 (`resume`) y L397 (reanudación automática en `runRecurringBilling`) · backend/routes.js L1122 · bloqueo de despacho en backend/routes.js L773 · batch en L504 | Prueba 49 |
+| Cambiar de plan antes del día de corte aplica desde la próxima caja; después del corte, en el ciclo siguiente | backend/billing.js L469 (`planChangeEffect`) y L479 (`changePlan`) · aplicación del cambio programado en `billOne` (L338) · backend/config.js L68 (`SUBSCRIPTION_CUTOFF_DAY`, 25) | Prueba 50 |
+| Cancelar detiene los cobros futuros; antes de confirmar se ofrece pausar; se conecta la encuesta de HU-13 | backend/routes.js L1142 · frontend/js/views/profileView.js L327 (`openPauseInsteadModal`) y L442 (encuesta) | Prueba 51 |
+| Matriz de transiciones con las válidas y las inválidas, incluido PAST_DUE | backend/billing.js L39 (`TRANSITIONS`), L51 y L56 | Prueba 48 |
+
+**Matriz de transiciones** (las demás combinaciones responden 409 con el estado actual).
+
+| Acción | Desde | Hacia |
+|---|---|---|
+| Suscribirse | NONE, CANCELLED | ACTIVE |
+| Pausar | ACTIVE (sin cobro en reintento) | PAUSED |
+| Reanudar | PAUSED (manual o automático) | ACTIVE |
+| Cambiar plan | ACTIVE, PAUSED | el mismo estado |
+| Cancelar | ACTIVE, PAUSED, PAST_DUE | CANCELLED |
+| Actualizar medio de pago | ACTIVE, PAUSED, PAST_DUE | ACTIVE si el cobro pendiente se aprueba |
+| Cobro fallido tras los reintentos (sistema) | ACTIVE | PAST_DUE |
+
+Detalles.
+- **Pausa.** Se salta el próximo cobro y su caja. `pausedUntil` = fecha de ese cobro + 1 mes, y ahí vuelve el cobro. Reanudar antes recupera el cobro saltado si aún no pasó.
+- **Cambio de plan.** Antes del día 25 cambia el plan de la suscripción y del perfil, así que la próxima caja y el próximo cobro usan el plan nuevo. Desde el día 25 queda como `pendingPlan` desde el cobro siguiente al próximo. Elegir de nuevo el plan actual deshace un cambio programado.
+- **Cancelar.** Borra la próxima fecha de cobro, el cambio programado y los reintentos. Se puede volver a suscribir.
+- **Pantalla.** "Mi Perfil › Mi suscripción" (frontend/js/views/profileView.js L249). Muestra estado, tarjeta, próximo cobro y avisos de pausa, reintento, mora o cambio programado. Los botones dependen del estado. Incluye la tabla de pagos y facturas.
+- **Verificación manual.**
+  - **Cancelar.** "Cancelar suscripción" abrió primero "¿Prefieres pausar un mes?".
+  - **Pausar.** Elegí pausar y el perfil mostró "En pausa… Se reanuda solo el 4 de enero de 2027" con "Reanudar ahora".
+  - **Cambiar plan.** El modal explicó que hoy es antes del día de corte y que el cambio aplica desde la próxima caja. Confirmé Estilo y quedó "Plan Estilo · COP 199.900/mes".
+  - **Mora.** En pago pendiente solo aparecen "Actualizar medio de pago" y "Cancelar".
+
+**Pendientes.**
+- **Cambio de plan después del corte.** Hoy es 4 de noviembre, así que en pantalla solo verifiqué el caso antes del corte. El caso después del corte está cubierto en la prueba 50 con fechas fijas (10 y 26 de noviembre).
+- **Saldo a favor (decisión del equipo).** El prototipo ofrecía "saltar un mes" con saldo a favor. Aquí la pausa no cobra ese mes, así que no se genera saldo. Hay que confirmar si se mantiene así.
+- **Pausas de más de un mes.** Duran 1 mes (`PAUSE_MONTHS`). El prototipo permitía elegir varios meses. Falta confirmar si se necesita.
+
+### HU-15 Facturación electrónica
+
+Escenarios Gherkin cubiertos. **2 de 2** (antes 0).
+
+| Escenario | Código | Prueba |
+|---|---|---|
+| Tras cada cobro exitoso se genera la factura con consecutivo, datos fiscales, IVA y total, marcada SIMULADO, y se manda a la bandeja de salida | backend/billing.js L152 (`invoiceForPayment`) y L126 (`tryIssue`) · backend/invoicing/index.js L10 · backend/database.js L468 (`addInvoice`, consecutivo) | Prueba 52 |
+| Datos fiscales del suscriptor (tipo y número de documento, dirección y ciudad) en el pago o en el perfil | backend/billing.js L78 (`validateFiscal`) · backend/routes.js L1133 · frontend/js/views/subscribeView.js (paso 3) · frontend/js/views/profileView.js L204 y L416 | Prueba 52 |
+| Si el proveedor falla (`INVOICING_FAIL=1`), la factura queda PENDING_RETRY con reintentos y una alerta visible en el panel | backend/billing.js L112 (`alertTeam`) y L176 (`runInvoiceRetries`) · backend/database.js L487 · backend/config.js L73 (`INVOICE_RETRY_MINUTES`) · backend/routes.js L558 y L567 · frontend/js/views/adminView.js L582 (pestaña Facturación) | Prueba 53 |
+
+Detalles.
+- **Número.** Prefijo SETT (el que usa el ambiente de habilitación de la DIAN) y consecutivo sin saltos (`SETT-1`, `SETT-2`…). El CUFE es un SHA-384 simulado.
+- **IVA.** El precio del plan incluye IVA del 19 %: subtotal = total / 1,19 y el IVA es la diferencia. Esencial: 109.160 + 20.740 = 129.900.
+- **El cobro no depende de la factura.** Si el proveedor falla, el pago queda aprobado y la factura entra a la cola. Los reintentos son a los 5, 30 y 120 minutos. Al agotarlos queda FAILED con la alerta abierta para revisión manual.
+- **Datos fiscales al reintentar.** Cada reintento vuelve a leer los datos fiscales del usuario. Si faltaban y la persona los completa en el perfil, el reintento ya los usa.
+- **Alertas.** Se ven en Panel → Facturación (la pestaña muestra el número de alertas) y llegan como `INVOICE_ALERT` a operaciones@theclothesbox.co en la bandeja simulada. Se cierran solas al emitirse la factura.
+- **Verificación manual.**
+  - **Falla.** Arranqué el servidor con `INVOICING_FAIL=1` y un cliente pagó el plan Estilo con NIT 900123456-7. El pago quedó aprobado y la factura SETT-5 en "Pendiente de reintento · intento 1". El panel mostró "Facturación (1 alertas)" y el banner rojo con el motivo.
+  - **Reintento.** Sin la variable, el reintento emitió SETT-5, cerró la alerta y mandó "[SIMULADO] Tu factura electrónica SETT-5" a la bandeja.
+  - **Tabla.** Muestra subtotal, IVA y total de cada factura (por ejemplo, $167.983 + $31.917 = $199.900).
+
+**Pendientes (decisión del equipo).**
+- **Tratamiento tributario.** Falta validar con un contador que el precio incluye IVA del 19 % y que la tarifa aplica a la suscripción como servicio con prendas.
+- **Datos del emisor.** Razón social y NIT son de ejemplo (backend/config.js, `ISSUER`).
+- **Proveedor real.** Al conectarlo se necesitan la resolución de numeración de la DIAN, el rango autorizado y el certificado de firma.
+- **Factura FAILED.** No hay botón para emitirla a mano desde el panel. Hoy se corrige la causa y se reintenta por el endpoint.
+
+### Commits de esta sesión (rama `sprint2`)
+
+| Commit | Contenido |
+|---|---|
+| HU-08 Pago recurrente simulado con reintentos y conciliación | backend/payments/, backend/billing.js, backend/invoicing/ (billing lo carga), backend/config.js, backend/database.js, backend/jobs.js, backend/routes.js, backend/data/db.json, tests/api.test.js, subscribeView.js, api.js, app.js, index.html, onboardingView.js, adminView.js, screens.css (archivos compartidos) |
+| HU-12 Pausar, cambiar plan o cancelar desde Mi suscripción | profileView.js (sección "Mi suscripción") |
+| HU-15 Datos fiscales en el perfil | profileView.js (sección "Datos de facturación") |
+| Evidencias Sprint 2 Prompt 3 | Este archivo |
+
+Igual que en las sesiones anteriores, backend/billing.js y las rutas mezclan las tres HU. Van en el primer commit (HU-08) y las tablas de arriba dicen qué líneas pertenecen a cada HU. El adaptador de facturación va en ese mismo commit porque billing.js lo carga y, sin él, el commit no arrancaría.
