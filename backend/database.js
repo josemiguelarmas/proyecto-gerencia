@@ -20,7 +20,7 @@ function verifyPassword(password, stored) {
 }
 
 // Colecciones de la base. Las de Sprint 2 se crean vacías en bases existentes.
-const COLLECTIONS = ['users', 'profiles', 'boxes', 'ratings', 'returns', 'consents', 'authTokens', 'subscriptions', 'cancellations', 'corrections', 'quizSessions', 'profileVersions', 'payments', 'invoices', 'alerts'];
+const COLLECTIONS = ['users', 'profiles', 'boxes', 'ratings', 'returns', 'consents', 'authTokens', 'subscriptions', 'cancellations', 'corrections', 'quizSessions', 'profileVersions', 'payments', 'invoices', 'alerts', 'inventoryMovements'];
 
 function emptyData() {
   return Object.fromEntries(COLLECTIONS.map(c => [c, []]));

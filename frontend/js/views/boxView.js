@@ -147,11 +147,12 @@ TCB.views.box = (() => {
           </div>
         </div>
 
-        <!-- DETALLES DE GUÍA -->
+        <!-- DETALLES DE GUÍA (HU-09: guía del operador logístico SIMULADO) -->
         <div style="display:inline-flex;gap:24px;background:var(--paper-2);border:var(--hair);padding:14px 24px;border-radius:var(--r-1);margin-top:var(--s-5);text-align:left;flex-wrap:wrap">
           <div>
             <p class="small muted">Guía de rastreo</p>
-            <p class="mono" style="font-weight:700">${box.trackingNumber || (isShip ? 'TCB-CALI-7829-X' : 'Se asigna al despachar')}</p>
+            <p class="mono" style="font-weight:700">${box.trackingNumber || 'Se asigna al despachar'}</p>
+            ${box.carrier ? `<p class="small muted">${box.carrier}</p>` : ''}
           </div>
           <div>
             <p class="small muted">Prendas incluidas</p>
@@ -159,9 +160,20 @@ TCB.views.box = (() => {
           </div>
           <div>
             <p class="small muted">Entrega estimada</p>
-            <p style="font-weight:600">${box.estimatedDelivery || 'Hoy antes de las 6:00 PM'}</p>
+            <p style="font-weight:600">${box.estimatedDelivery ? new Date(box.estimatedDelivery).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' }) : 'Se calcula al despachar'}</p>
           </div>
         </div>
+
+        ${(box.trackingEvents || []).length ? `
+          <ol class="small" style="list-style:none;padding:0;margin:var(--s-4) auto 0;max-width:420px;text-align:left">
+            ${box.trackingEvents.map(e => `
+              <li style="display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:var(--hair)">
+                <span>${e.label}</span>
+                <span class="muted mono">${new Date(e.at).toLocaleString('es-CO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+              </li>
+            `).join('')}
+          </ol>
+        ` : ''}
 
         <div style="margin-top:var(--s-6)">
           <p class="small muted">
@@ -514,7 +526,9 @@ TCB.views.box = (() => {
         await TCB.state.loadUserSession();
         TCB.state.toast(res.message || 'Estado de envío actualizado.');
       } catch (e) {
-        TCB.state.toast(e.message || 'Error al simular envío', { type: 'danger' });
+        // HU-09: sin el pago del ciclo la caja no se despacha
+        const hint = e.message === 'Pago no confirmado' ? ' Revisa tu suscripción en Mi Perfil.' : '';
+        TCB.state.toast(`${e.message || 'Error al simular envío'}${hint}`, { type: 'danger' });
       }
     });
 

@@ -143,6 +143,8 @@ TCB.api = (() => {
       payments: () => request('/api/admin/payments'),
       runBilling: now => request('/api/admin/jobs/recurring-billing', { method: 'POST', body: { now } }),
       invoices: () => request('/api/admin/invoices'),
+      dispatch: () => request('/api/admin/dispatch'),
+      inventoryMovements: () => request('/api/admin/inventory-movements'),
       runInvoiceRetries: now => request('/api/admin/jobs/invoice-retries', { method: 'POST', body: { now } })
     }
   };

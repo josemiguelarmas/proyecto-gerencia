@@ -31,6 +31,9 @@ const PLANS = {
 };
 Object.values(PLANS).forEach(plan => { plan.targetCostCOP = targetCost(plan.priceCOP); });
 
+// HU-14: plazo único de cambio por talla, en días hábiles desde la entrega (lo lee también el frontend).
+const RETURN_WINDOW_BUSINESS_DAYS = Number(process.env.RETURN_WINDOW_BUSINESS_DAYS) || 5;
+
 module.exports = {
   POLICY,
   PLANS,
@@ -73,5 +76,12 @@ module.exports = {
   INVOICE_RETRY_MINUTES: [5, 30, 120],
   TEAM_ALERT_EMAIL: 'operaciones@theclothesbox.co',
   ISSUER: { name: 'The Clothes Box S.A.S. (SIMULADO)', nit: '900000000-0', city: 'Cali' },
-  FISCAL_DOC_TYPES: { CC: 'Cédula de ciudadanía', CE: 'Cédula de extranjería', NIT: 'NIT', PA: 'Pasaporte' }
+  FISCAL_DOC_TYPES: { CC: 'Cédula de ciudadanía', CE: 'Cédula de extranjería', NIT: 'NIT', PA: 'Pasaporte' },
+  RETURN_WINDOW_BUSINESS_DAYS,
+  RETURN_CONDITIONS: [
+    `El cambio se pide dentro de ${RETURN_WINDOW_BUSINESS_DAYS} días hábiles desde la entrega de la caja.`,
+    'Solo aplica a problemas de talla o ajuste (muy pequeña, muy grande o de proporciones).',
+    'La prenda debe estar sin uso, sin lavar y con sus etiquetas.',
+    'La recogida y el envío de la nueva talla no tienen costo en Cali.'
+  ]
 };

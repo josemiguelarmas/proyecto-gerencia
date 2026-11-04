@@ -156,6 +156,11 @@ async function runTests() {
     const stylistToken = stylistLogin.body.token;
     const approveRes = await request('POST', `/api/stylist/boxes/${proposedBoxRes.body.box.id}/approve`, {}, stylistToken);
     assert.strictEqual(approveRes.status, 200);
+    // Ajuste Prompt 4 (HU-09): sin el pago del ciclo confirmado la caja no se despacha.
+    const unpaidStep = await request('POST', '/api/boxes/simulate-step', {}, newToken);
+    assert.strictEqual(unpaidStep.status, 409);
+    assert.strictEqual(unpaidStep.body.error, 'Pago no confirmado');
+    assert.strictEqual((await subscribeWith(newToken)).status, 201);
     const prepStep = await request('POST', '/api/boxes/simulate-step', {}, newToken);
     assert.strictEqual(prepStep.body.status, 'PREPARING');
     const preparingBoxRes = await request('GET', '/api/boxes/current', null, newToken);
@@ -255,6 +260,7 @@ async function runTests() {
     await runSprint2Tests({ token, newToken, newEmail, adminToken, deliveredBox: deliveredBoxRes.body.box });
     await runPrompt2Tests({ token, adminToken, stylistToken, deliveredBox: deliveredBoxRes.body.box });
     await runPrompt3Tests({ adminToken, stylistToken });
+    await runPrompt4Tests({ adminToken, stylistToken });
 
     console.log('\n======================================================');
     console.log('¡TODAS LAS PRUEBAS DE BACKEND Y ROLES PASARON CON ÉXITO!');
@@ -401,7 +407,7 @@ async function runSprint2Tests({ token, newToken, newEmail, adminToken, delivere
 
   // 26. HU-13: cancelación con encuesta y conteo agregado
   const before = (await request('GET', '/api/admin/cancellation-reasons', null, adminToken)).body;
-  assert.strictEqual((await subscribeWith(newToken)).status, 201);
+  assert.strictEqual((await request('GET', '/api/subscription', null, newToken)).body.subscription.status, 'ACTIVE', 'Pagó en la prueba 5');
   const cancelRes = await request('POST', '/api/subscription/cancel', { reason: 'precio', comment: 'Está caro para mí' }, newToken);
   assert.strictEqual(cancelRes.status, 200);
   assert.strictEqual(cancelRes.body.subscription.status, 'CANCELLED');
@@ -453,8 +459,10 @@ async function runPrompt2Tests({ token, adminToken, stylistToken, deliveredBox }
   console.log('\n--- SPRINT 2 · PROMPT 2 ---');
 
   // 28. HU-05: todo el catálogo migrado tiene variantes con stock inicial 10
-  assert.ok(db.catalog.length >= 18);
-  db.catalog.slice(0, 18).forEach(p => {
+  // Ajuste Prompt 4: se revisa el catálogo versionado; en memoria los despachos de HU-09 ya descontaron stock.
+  const migrated = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'backend', 'data', 'catalog.json'), 'utf8'));
+  assert.ok(migrated.length >= 18);
+  migrated.slice(0, 18).forEach(p => {
     assert.ok(Array.isArray(p.variants) && p.variants.length > 0, `${p.id} sin variantes`);
     p.variants.forEach(v => assert.ok(v.size && v.color && v.stock === 10, `${p.id} variante inválida`));
   });
@@ -882,6 +890,163 @@ async function runPrompt3Tests({ adminToken, stylistToken }) {
   assert.ok(db.getAlerts().some(al => al.refId === doomed.id && !al.resolvedAt));
   delete process.env.INVOICING_FAIL;
   console.log('✓ 53. HU-15: INVOICING_FAIL=1 deja la factura PENDING_RETRY, alerta en el panel y se emite al reintentar');
+}
+
+async function deliveredClient(stylistToken) {
+  const c = await newClient();
+  await request('POST', `/api/stylist/boxes/${c.boxId}/approve`, { reason: 'Ok' }, stylistToken);
+  for (let i = 0; i < 3; i++) await request('POST', '/api/boxes/simulate-step', {}, c.token);
+  return { ...c, box: db.getBoxById(c.boxId) };
+}
+
+const variantStock = (productId, size, color) => {
+  const p = db.getProductById(productId);
+  return p.variants.filter(v => v.size === size && (!color || v.color === color)).reduce((acc, v) => acc + v.stock, 0);
+};
+
+async function runPrompt4Tests({ adminToken, stylistToken }) {
+  console.log('\n--- SPRINT 2 · PROMPT 4 ---');
+  const { calculateFit } = require('../backend/engine');
+  const logistics = require('../backend/logistics');
+  const shipping = require('../backend/shipping');
+  const today = shipping.dateKey(new Date());
+
+  // 54. HU-09: despacho de caja aprobada y pagada: guía, stock y aviso
+  const c = await newClient();
+  await request('POST', `/api/stylist/boxes/${c.boxId}/approve`, { reason: 'Ok' }, stylistToken);
+  const profile = db.getProfile(c.userId);
+  const sizes = db.getBoxById(c.boxId).itemIds.map(id => ({ id, size: calculateFit(profile, db.getProductById(id)).size }));
+  const before = sizes.map(x => variantStock(x.id, x.size));
+  assert.strictEqual((await request('POST', '/api/boxes/simulate-step', {}, c.token)).body.status, 'PREPARING');
+  const shipped = await request('POST', '/api/boxes/simulate-step', {}, c.token);
+  assert.strictEqual(shipped.body.status, 'SHIPPED');
+  const tracking = shipped.body.box.trackingNumber;
+  assert.ok(new RegExp(`^TCB-${today}-\\d{4}$`).test(tracking), `Guía con formato TCB-AAAAMMDD-0001: ${tracking}`);
+  sizes.forEach((x, i) => assert.strictEqual(variantStock(x.id, x.size), before[i] - 1, `Descuenta stock de ${x.id} talla ${x.size}`));
+  assert.ok(db.data.inventoryMovements.some(m => m.type === 'DISPATCH_OUT' && m.refId === c.boxId));
+  const shipMail = (await outboxFor(adminToken, c.email, 'BOX_SHIPPED'))[0];
+  assert.ok(shipMail && shipMail.body.includes(tracking), 'El número de guía llega por la bandeja de salida');
+  const d2 = await newClient();
+  await request('POST', `/api/stylist/boxes/${d2.boxId}/approve`, { reason: 'Ok' }, stylistToken);
+  const adminShip = await request('POST', `/api/admin/boxes/${d2.boxId}/status`, { status: 'SHIPPED' }, adminToken);
+  assert.strictEqual(adminShip.status, 200);
+  assert.strictEqual(Number(adminShip.body.box.trackingNumber.slice(-4)), Number(tracking.slice(-4)) + 1, 'Consecutivo diario');
+  console.log(`✓ 54. HU-09: caja aprobada y pagada se despacha con guía ${tracking}, descuenta stock y avisa`);
+
+  // 55. HU-09: seguimiento y notificación de entregada
+  const inTransit = (await request('GET', '/api/boxes/current', null, c.token)).body.box;
+  assert.strictEqual(inTransit.trackingNumber, tracking);
+  assert.ok(/SIMULADO/.test(inTransit.carrier));
+  assert.deepStrictEqual(inTransit.trackingEvents.map(e => e.status), ['PREPARING', 'SHIPPED']);
+  assert.strictEqual(inTransit.items, null, 'Sigue sellada en tránsito');
+  await request('POST', '/api/boxes/simulate-step', {}, c.token);
+  const delivered = (await request('GET', '/api/boxes/current', null, c.token)).body.box;
+  assert.deepStrictEqual(delivered.trackingEvents.map(e => e.status), ['PREPARING', 'SHIPPED', 'DELIVERED']);
+  assert.ok((await outboxFor(adminToken, c.email, 'BOX_DELIVERED'))[0].body.includes(tracking));
+  console.log('✓ 55. HU-09: el suscriptor sigue su guía (preparación, despacho, entrega) y recibe el aviso de entregada');
+
+  // 56. HU-09: pago no confirmado bloquea el despacho con 409
+  const u = await newClientWithoutPlan();
+  const uBox = (await request('GET', '/api/boxes/current', null, u.token)).body.box;
+  await request('POST', `/api/stylist/boxes/${uBox.id}/approve`, { reason: 'Ok' }, stylistToken);
+  const unpaid = await request('POST', '/api/boxes/simulate-step', {}, u.token);
+  assert.strictEqual(unpaid.status, 409);
+  assert.strictEqual(unpaid.body.error, 'Pago no confirmado');
+  const unpaidAdmin = await request('POST', `/api/admin/boxes/${uBox.id}/status`, { status: 'SHIPPED' }, adminToken);
+  assert.deepStrictEqual([unpaidAdmin.status, unpaidAdmin.body.error], [409, 'Pago no confirmado']);
+  assert.ok(!db.getBoxById(uBox.id).trackingNumber, 'Sin guía');
+  await subscribeWith(u.token);
+  db.saveSubscription(u.userId, { dunning: { period: 'x', attempts: 0, nextRetryAt: new Date().toISOString() } });
+  assert.strictEqual((await request('POST', '/api/boxes/simulate-step', {}, u.token)).body.error, 'Pago no confirmado', 'Cobro en reintento tampoco despacha');
+  db.saveSubscription(u.userId, { status: 'PAST_DUE' });
+  assert.strictEqual(logistics.dispatchBlock(db.getBoxById(uBox.id), 'PREPARING'), 'Pago no confirmado');
+  db.saveSubscription(u.userId, { status: 'ACTIVE', dunning: null });
+  assert.strictEqual((await request('POST', '/api/boxes/simulate-step', {}, u.token)).body.status, 'PREPARING', 'Con el pago al día avanza');
+  console.log('✓ 56. HU-09: sin pago del ciclo (sin suscripción, en reintento o en mora) responde 409 "Pago no confirmado"');
+
+  // 57. HU-09: vista "Cajas por despachar" con picking y empaque
+  const q = await newClient();
+  await request('POST', `/api/stylist/boxes/${q.boxId}/approve`, { reason: 'Ok' }, stylistToken);
+  const dispatch = await request('GET', '/api/admin/dispatch', null, adminToken);
+  assert.strictEqual(dispatch.status, 200);
+  const qRow = dispatch.body.boxes.find(b => b.id === q.boxId);
+  assert.ok(qRow && qRow.paymentConfirmed && qRow.blockedReason === null && qRow.items.every(i => i.size && i.color));
+  assert.ok(dispatch.body.boxes.some(b => b.id === uBox.id), 'Las cajas en preparación siguen en la lista');
+  const totalUnits = dispatch.body.pickingList.reduce((acc, p) => acc + p.quantity, 0);
+  assert.strictEqual(totalUnits, dispatch.body.boxes.reduce((acc, b) => acc + b.items.length, 0), 'El picking suma todas las prendas');
+  assert.ok(!dispatch.body.boxes.some(b => b.id === c.boxId), 'Las despachadas salen de la lista');
+  assert.strictEqual((await request('GET', '/api/admin/dispatch', null, q.token)).status, 403);
+  console.log(`✓ 57. HU-09: "Cajas por despachar" lista ${dispatch.body.boxes.length} cajas y un picking de ${totalUnits} prendas`);
+
+  // 58. HU-14: plazo único de 5 días hábiles, validado en el backend (422 fuera de plazo)
+  const cfg = (await request('GET', '/api/config')).body;
+  assert.strictEqual(cfg.returnWindowBusinessDays, 5);
+  assert.strictEqual(cfg.returnWindowBusinessDays, config.RETURN_WINDOW_BUSINESS_DAYS);
+  const friday = new Date(2026, 10, 6, 10);
+  const deadline = new Date(logistics.returnDeadline(friday.toISOString()));
+  assert.deepStrictEqual([deadline.getFullYear(), deadline.getMonth(), deadline.getDate()], [2026, 10, 13], 'Viernes + 5 hábiles = viernes siguiente');
+  const late = await deliveredClient(stylistToken);
+  const lateItem = late.box.itemIds[0];
+  db.updateBox(late.boxId, { deliveredAt: new Date(Date.now() - 10 * 86400000).toISOString() });
+  const expired = await request('POST', '/api/returns', { boxId: late.boxId, productId: lateItem, reason: 'TOO_SMALL', requestedSize: 'L' }, late.token);
+  assert.strictEqual(expired.status, 422);
+  assert.strictEqual(expired.body.code, 'RETURN_WINDOW_EXPIRED');
+  assert.ok(Array.isArray(expired.body.conditions) && expired.body.conditions.length >= 3);
+  assert.strictEqual((await request('GET', '/api/returns', null, late.token)).body.returnableGarments[0].withinWindow, false);
+  console.log('✓ 58. HU-14: plazo de 5 días hábiles desde la entrega; fuera de plazo responde 422 con las condiciones');
+
+  // 59. HU-14: con stock en la talla pedida, guía inversa y envío programado de la otra talla
+  const r = await deliveredClient(stylistToken);
+  const item = r.box.itemIds[0];
+  const shippedVariant = r.box.shippedVariants.find(v => v.productId === item);
+  const otherSize = db.getProductById(item).variants.find(v => v.size !== shippedVariant.size && v.stock > 0).size;
+  const otherBefore = variantStock(item, otherSize);
+  const ok = await request('POST', '/api/returns', { boxId: r.boxId, productId: item, reason: 'TOO_SMALL', requestedSize: otherSize, notes: 'Apretada' }, r.token);
+  assert.strictEqual(ok.status, 201);
+  assert.strictEqual(ok.body.returnRequest.resolution, 'EXCHANGE_SIZE');
+  assert.ok(new RegExp(`^TCB-DEV-${today}-\\d{4}$`).test(ok.body.returnRequest.returnTrackingNumber));
+  assert.ok(new RegExp(`^TCB-${today}-\\d{4}$`).test(ok.body.returnRequest.exchangeTrackingNumber));
+  assert.strictEqual(variantStock(item, otherSize), otherBefore - 1, 'Reserva la otra talla');
+  assert.ok((await outboxFor(adminToken, r.email, 'RETURN_SCHEDULED'))[0].body.includes(ok.body.returnRequest.returnTrackingNumber));
+  assert.strictEqual((await request('POST', '/api/returns', { boxId: r.boxId, productId: item, reason: 'TOO_SMALL', requestedSize: otherSize }, r.token)).status, 409, 'Un cambio por prenda');
+  console.log(`✓ 59. HU-14: guía de devolución ${ok.body.returnRequest.returnTrackingNumber} y envío programado de la talla ${otherSize}`);
+
+  // 60. HU-14: sin stock en la talla pedida ofrece una prenda equivalente o devolver
+  const item2 = r.box.itemIds[1];
+  const p2 = db.getProductById(item2);
+  const wanted = p2.variants.find(v => v.size !== r.box.shippedVariants.find(x => x.productId === item2).size).size;
+  p2.variants.filter(v => v.size === wanted).forEach(v => { v.stock = 0; });
+  const noStock = await request('POST', '/api/returns', { boxId: r.boxId, productId: item2, reason: 'TOO_LARGE', requestedSize: wanted }, r.token);
+  assert.strictEqual(noStock.status, 409);
+  assert.strictEqual(noStock.body.code, 'NO_STOCK_IN_SIZE');
+  assert.strictEqual(noStock.body.options.canReturn, true);
+  const eq = noStock.body.options.equivalents;
+  assert.ok(eq.length >= 1 && eq.every(e => e.category === p2.category && e.stockInSize > 0));
+  assert.strictEqual((await request('POST', '/api/returns', { boxId: r.boxId, productId: item2, reason: 'TOO_LARGE', requestedSize: wanted, resolution: 'EQUIVALENT', replacementProductId: 'prod-inexistente' }, r.token)).status, 400);
+  const eqBefore = variantStock(eq[0].id, wanted);
+  const chosen = await request('POST', '/api/returns', { boxId: r.boxId, productId: item2, reason: 'TOO_LARGE', requestedSize: wanted, resolution: 'EQUIVALENT', replacementProductId: eq[0].id }, r.token);
+  assert.strictEqual(chosen.status, 201);
+  assert.strictEqual(chosen.body.returnRequest.replacementProductId, eq[0].id);
+  assert.strictEqual(variantStock(eq[0].id, wanted), eqBefore - 1);
+  const item3 = r.box.itemIds[2];
+  const onlyReturn = await request('POST', '/api/returns', { boxId: r.boxId, productId: item3, reason: 'FIT_ISSUE', requestedSize: 'M', resolution: 'RETURN_ONLY' }, r.token);
+  assert.strictEqual(onlyReturn.status, 201);
+  assert.strictEqual(onlyReturn.body.returnRequest.creditPending, true);
+  assert.ok(!onlyReturn.body.returnRequest.exchangeTrackingNumber);
+  console.log('✓ 60. HU-14: sin stock responde con equivalentes; el cliente elige equivalente o solo devolver');
+
+  // 61. HU-14: reingreso de inventario al recibir la prenda, una sola vez y con motivo
+  const retId = ok.body.returnRequest.id;
+  const restockBefore = variantStock(item, shippedVariant.size, shippedVariant.color);
+  const received = await request('PUT', `/api/admin/returns/${retId}`, { status: 'RECEIVED' }, adminToken);
+  assert.strictEqual(received.status, 200);
+  assert.strictEqual(variantStock(item, shippedVariant.size, shippedVariant.color), restockBefore + 1, 'La variante devuelta sube 1');
+  assert.strictEqual(received.body.returnRequest.restock.reason, 'TOO_SMALL');
+  await request('PUT', `/api/admin/returns/${retId}`, { status: 'COMPLETED' }, adminToken);
+  assert.strictEqual(variantStock(item, shippedVariant.size, shippedVariant.color), restockBefore + 1, 'No reingresa dos veces');
+  const movements = (await request('GET', '/api/admin/inventory-movements', null, adminToken)).body.movements;
+  assert.ok(movements.some(m => m.type === 'RETURN_IN' && m.refId === retId && m.reason === 'TOO_SMALL'));
+  console.log('✓ 61. HU-14: al marcar recibida, el stock de la variante sube 1 y queda el movimiento con el motivo');
 }
 
 async function newClientWithoutPlan() {
