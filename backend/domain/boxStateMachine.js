@@ -1,4 +1,4 @@
-// Box lifecycle contract. Lists the box statuses that exist today in routes.js and
+// Box lifecycle contract. Lists the box statuses that exist today in backend/routes/ and
 // logistics.js, the allowed transitions between them, and which roles may perform each one.
 // Pure functions, no I/O: routes and jobs will call assertTransition() before changing a box
 // (wiring is Phase 1b). Today the admin status setter and POST /api/boxes/simulate-step do
@@ -41,7 +41,7 @@ const TRANSITIONS = Object.freeze({
 // A new box always starts as PROPOSED, created by the engine.
 const INITIAL_STATUS = PROPOSED;
 
-// Statuses where the box already passed stylist review (UNAPPROVED_STATUSES in routes.js).
+// Statuses where the box already passed stylist review (UNAPPROVED_STATUSES in lib/boxes.js).
 const UNAPPROVED_STATUSES = Object.freeze([PROPOSED, REJECTED]);
 const TERMINAL_STATUSES = Object.freeze([RATED]);
 

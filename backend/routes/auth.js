@@ -1,0 +1,140 @@
+// Authentication routes: sign-up with age and consent checks (HU-01, HU-02), login, password
+// recovery and e-mail verification with single-use tokens, plus the authenticated "who am I"
+// and "resend verification" endpoints. Token signing and verification live in backend/auth.js.
+const { db, verifyPassword } = require('../database');
+const { signToken } = require('../auth');
+const config = require('../config');
+const mail = require('../mail');
+const { sendJson, parseJsonBody } = require('../lib/http');
+const { publicUser, sendVerificationEmail } = require('../lib/accounts');
+
+// Edad cumplida a partir de una fecha YYYY-MM-DD. Devuelve null si la fecha no es válida.
+function ageFromBirthDate(birthDate, now = new Date()) {
+  if (typeof birthDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(birthDate)) return null;
+  const [y, m, d] = birthDate.split('-').map(Number);
+  const birth = new Date(Date.UTC(y, m - 1, d));
+  if (birth.getUTCMonth() !== m - 1 || birth > now) return null;
+  let age = now.getUTCFullYear() - y;
+  const beforeBirthday = now.getUTCMonth() < m - 1 || (now.getUTCMonth() === m - 1 && now.getUTCDate() < d);
+  if (beforeBirthday) age--;
+  return age;
+}
+
+async function register({ req, res }) {
+  const { name, email, password, birthDate, acceptedPolicy, policyVersion } = await parseJsonBody(req);
+  if (!name || !email || !password || !birthDate) {
+    return sendJson(res, 400, { error: 'Nombre, correo, fecha de nacimiento y contraseña son obligatorios.' });
+  }
+  // HU-02: sin consentimiento explícito no se crea la cuenta
+  if (acceptedPolicy !== true || !policyVersion) {
+    return sendJson(res, 400, { error: 'El consentimiento es obligatorio', code: 'CONSENT_REQUIRED' });
+  }
+  if (policyVersion !== config.POLICY.version) {
+    return sendJson(res, 400, { error: `La versión de la política aceptada (${policyVersion}) no es la vigente (${config.POLICY.version}). Recarga la página.`, code: 'POLICY_OUTDATED' });
+  }
+  const age = ageFromBirthDate(birthDate);
+  if (age === null) {
+    return sendJson(res, 400, { error: 'La fecha de nacimiento no es válida.' });
+  }
+  if (age < config.MIN_AGE) {
+    return sendJson(res, 400, { error: `Debes ser mayor de ${config.MIN_AGE} años para crear una cuenta en The Clothes Box.`, code: 'UNDERAGE' });
+  }
+  if (password.length < 6) {
+    return sendJson(res, 400, { error: 'La contraseña debe tener al menos 6 caracteres.' });
+  }
+  if (db.findUserByEmail(email)) {
+    return sendJson(res, 409, { error: 'Este correo ya está registrado', code: 'EMAIL_EXISTS' });
+  }
+  const user = db.createUser(name, email, password, 'CLIENT', { birthDate, emailVerified: false });
+  db.addConsent(user.id, { accepted: true, policyVersion });
+  sendVerificationEmail(user);
+  const token = signToken({ userId: user.id });
+  return sendJson(res, 201, { token, user: publicUser(user) });
+}
+
+// HU-01: recuperación de contraseña. La respuesta es la misma exista o no el correo.
+async function forgotPassword({ req, res }) {
+  const { email } = await parseJsonBody(req);
+  if (!email) {
+    return sendJson(res, 400, { error: 'Escribe el correo de tu cuenta.' });
+  }
+  const user = db.findUserByEmail(email);
+  if (user) {
+    const token = db.createAuthToken(user.id, 'PASSWORD_RESET', config.PASSWORD_RESET_TTL_MS);
+    mail.send({
+      to: user.email,
+      type: 'PASSWORD_RESET',
+      subject: 'Recupera tu contraseña de The Clothes Box',
+      body: `Hola ${user.name}, para crear una nueva contraseña abre este enlace (vence en 1 hora y sirve una sola vez): ${config.APP_BASE_URL}/#/restablecer?token=${token}`
+    });
+  }
+  return sendJson(res, 200, {
+    success: true,
+    message: 'Si el correo está registrado, te enviamos un enlace para restablecer la contraseña. Vence en 1 hora.'
+  });
+}
+
+async function resetPassword({ req, res }) {
+  const { token, password } = await parseJsonBody(req);
+  if (!password || password.length < 6) {
+    return sendJson(res, 400, { error: 'La nueva contraseña debe tener al menos 6 caracteres.' });
+  }
+  const record = db.consumeAuthToken(token, 'PASSWORD_RESET');
+  if (!record) {
+    return sendJson(res, 400, { error: 'El enlace no es válido, ya se usó o venció. Solicita uno nuevo.' });
+  }
+  db.setPassword(record.userId, password);
+  return sendJson(res, 200, { success: true, message: 'Tu contraseña fue actualizada. Ya puedes iniciar sesión.' });
+}
+
+async function verifyEmail({ req, res }) {
+  const { token } = await parseJsonBody(req);
+  const record = db.consumeAuthToken(token, 'EMAIL_VERIFY');
+  if (!record) {
+    return sendJson(res, 400, { error: 'El enlace de verificación no es válido o ya se usó.' });
+  }
+  db.updateUser(record.userId, { emailVerified: true, emailVerifiedAt: new Date().toISOString() });
+  return sendJson(res, 200, { success: true, message: 'Tu correo quedó verificado.' });
+}
+
+async function login({ req, res }) {
+  const { email, password } = await parseJsonBody(req);
+  if (!email || !password) {
+    return sendJson(res, 400, { error: 'Correo y contraseña requeridos.' });
+  }
+  const user = db.findUserByEmail(email);
+  if (!user || !verifyPassword(password, user.passwordHash)) {
+    return sendJson(res, 401, { error: 'Credenciales inválidas. Verifica tu correo y contraseña.' });
+  }
+  const token = signToken({ userId: user.id });
+  const profile = db.getProfile(user.id);
+  return sendJson(res, 200, {
+    token,
+    user: publicUser(user),
+    profile
+  });
+}
+
+function me({ res, authUser }) {
+  const profile = db.getProfile(authUser.id);
+  return sendJson(res, 200, { user: publicUser(db.findUserById(authUser.id)), profile });
+}
+
+function resendVerification({ res, authUser }) {
+  const user = db.findUserById(authUser.id);
+  if (user.emailVerified !== false) {
+    return sendJson(res, 200, { success: true, message: 'Tu correo ya está verificado.' });
+  }
+  sendVerificationEmail(user);
+  return sendJson(res, 200, { success: true, message: `Te enviamos un nuevo enlace a ${user.email}.` });
+}
+
+module.exports = [
+  { method: 'POST', path: '/api/auth/register', public: true, handler: register },
+  { method: 'POST', path: '/api/auth/forgot', public: true, handler: forgotPassword },
+  { method: 'POST', path: '/api/auth/reset', public: true, handler: resetPassword },
+  { method: 'POST', path: '/api/auth/verify-email', public: true, handler: verifyEmail },
+  { method: 'POST', path: '/api/auth/login', public: true, handler: login },
+  { method: 'GET', path: '/api/auth/me', handler: me },
+  { method: 'POST', path: '/api/auth/resend-verification', handler: resendVerification }
+];

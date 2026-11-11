@@ -70,7 +70,8 @@ Todo el desarrollo se encuentra confinado dentro de la carpeta `prototipo-web/`.
 prototipo-web/
 ├── backend/
 │   ├── server.js          # Servidor HTTP nativo Node.js (API REST y estáticos)
-│   ├── routes.js          # Rutas públicas, de cliente y administrativas protegidas
+│   ├── routes/            # Rutas por dominio (auth, catalog, boxes, admin...) y enrutador en index.js
+│   ├── lib/               # Utilidades compartidas (http, accounts, boxes, clock)
 │   ├── auth.js            # Autenticación JWT y validación de roles (CLIENT/ADMIN)
 │   ├── database.js        # Base de datos JSON atómica con métricas y persistencia
 │   ├── engine.js          # Motor algorítmico de tallaje antropométrico
