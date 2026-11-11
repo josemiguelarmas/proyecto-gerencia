@@ -4,7 +4,7 @@
 const { db, verifyPassword } = require('../database');
 const { issueToken, revokeTokens } = require('../auth');
 const config = require('../config');
-const mail = require('../mail');
+const mail = require('../adapters/mailer');
 const { sendJson, parseJsonBody } = require('../lib/http');
 const { publicUser, sendVerificationEmail } = require('../lib/accounts');
 const rateLimit = require('../lib/rateLimit');

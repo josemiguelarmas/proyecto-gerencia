@@ -32,7 +32,7 @@ const { curateBox, scoreProduct } = require('../backend/engine');
 const { stockInSize } = require('../backend/catalog');
 const config = require('../backend/config');
 const billing = require('../backend/billing');
-const payments = require('../backend/payments');
+const payments = require('../backend/adapters/payments');
 
 const TEST_PORT = 3199;
 
@@ -925,7 +925,7 @@ async function runPrompt4Tests({ adminToken, stylistToken }) {
   console.log('\n--- SPRINT 2 · PROMPT 4 ---');
   const { calculateFit } = require('../backend/engine');
   const logistics = require('../backend/logistics');
-  const shipping = require('../backend/shipping');
+  const shipping = require('../backend/adapters/logistics');
   const today = shipping.dateKey(new Date());
 
   // 54. HU-09: despacho de caja aprobada y pagada: guía, stock y aviso

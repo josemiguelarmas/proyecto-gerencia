@@ -2,7 +2,7 @@
 // Cada solicitud queda en dataRequests con su tiempo de respuesta.
 const { db, verifyPassword } = require('./database');
 const config = require('./config');
-const mail = require('./mail');
+const mail = require('./adapters/mailer');
 const billing = require('./billing');
 
 const { EMAIL_RE } = require('./lib/validate');

@@ -3,7 +3,7 @@
 // provider with its test cards when it is the simulated one. The values come from
 // backend/config.js and the payments adapter; this module only shapes the response.
 const config = require('../config');
-const payments = require('../payments');
+const payments = require('../adapters/payments');
 const { sendJson } = require('../lib/http');
 
 function getConfig({ res }) {

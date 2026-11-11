@@ -4,7 +4,8 @@
 // the on-demand recurring billing and invoice retry jobs. Card data is never stored here.
 const { db } = require('../database');
 const billing = require('../billing');
-const payments = require('../payments');
+const payments = require('../adapters/payments');
+const invoicing = require('../adapters/invoicing');
 const { sendJson, readRawBody, parseJsonBody, parseNow } = require('../lib/http');
 
 // HU-08: webhook de la pasarela, firmado con HMAC en la cabecera X-Signature
@@ -53,7 +54,7 @@ function invoicesReport({ res }) {
     invoices: db.getInvoices(),
     alerts: db.getAlerts(),
     openAlerts: db.getAlerts().filter(a => !a.resolvedAt).length,
-    provider: { name: 'simulated', environment: 'HABILITACION', failMode: process.env.INVOICING_FAIL === '1' }
+    provider: { name: 'simulated', environment: 'HABILITACION', failMode: invoicing.isDown() }
   });
 }
 

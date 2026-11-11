@@ -209,10 +209,10 @@ No hay credenciales reales. Cada servicio es un adaptador con la misma interfaz 
 
 | Servicio | Adaptador | Qué hace en modo simulado |
 | :--- | :--- | :--- |
-| Correo | `backend/mail/index.js` | Guarda cada correo en `backend/data/outbox.json`. Se ve en Panel → Bandeja de Salida. |
-| Pasarela de pagos | `backend/payments/index.js` | Tokeniza la tarjeta (nunca guarda el número completo ni el CVV), cobra con llave de idempotencia y firma webhooks con HMAC. Tarjetas de prueba: `4242 4242 4242 4242` aprueba, `4000 0000 0000 0002` rechaza, `4000 0000 0000 0341` aprueba el primer cobro y falla los recurrentes. |
-| Facturación electrónica | `backend/invoicing/index.js` | Imita el ambiente de habilitación de la DIAN: factura `SETT-n` con IVA y CUFE simulado. |
-| Operador logístico | `backend/shipping/index.js` | Guías de despacho `TCB-AAAAMMDD-0001` y de devolución `TCB-DEV-AAAAMMDD-0001`. |
+| Correo | `backend/adapters/mailer/index.js` | Guarda cada correo en `DATA_DIR/outbox.json`. Se ve en Panel → Bandeja de Salida. |
+| Pasarela de pagos | `backend/adapters/payments/index.js` | Tokeniza la tarjeta (nunca guarda el número completo ni el CVV), cobra con llave de idempotencia y firma webhooks con HMAC. Tarjetas de prueba: `4242 4242 4242 4242` aprueba, `4000 0000 0000 0002` rechaza, `4000 0000 0000 0341` aprueba el primer cobro y falla los recurrentes. Tokens fijos: `tok_ok`, `tok_declined` y `tok_flaky` (falla los primeros `PAYMENT_FLAKY_FAILURES` cobros, 2 por defecto). |
+| Facturación electrónica | `backend/adapters/invoicing/index.js` | Imita el ambiente de habilitación de la DIAN: factura `SETT-n` con IVA y CUFE simulado. |
+| Operador logístico | `backend/adapters/logistics/index.js` | Guías de despacho `TCB-AAAAMMDD-0001` y de devolución `TCB-DEV-AAAAMMDD-0001`. Modo manual (`manualShipment`) para registrar transportadora y guía reales. |
 
 ### Variables de entorno
 Se leen en `backend/config/env.js` (las reglas de negocio siguen en `backend/config.js`). La lista completa con comentarios está en `.env.example`. Node no lee `.env` solo: define las variables en la terminal. `JWT_SECRET` y `DATA_ENCRYPTION_KEY` son obligatorias salvo con `NODE_ENV=test`; sin ellas `npm start` termina con código 1 y dice cuáles faltan. Las demás son opcionales.
@@ -249,6 +249,7 @@ Remove-Item Env:DATA_DIR
 | `PAYMENT_WEBHOOK_SECRET` | `whsec_simulado_desarrollo` | Secreto HMAC del webhook `POST /api/webhooks/payments` (cabecera `X-Signature`). |
 | `PAYMENT_RETRY_DAYS` | `1,3,5` | Días de reintento del cobro recurrente fallido. |
 | `INVOICING_PROVIDER` | `simulated` | Proveedor de facturación electrónica. |
+| `PAYMENT_FLAKY_FAILURES` | `2` | Cobros que falla el token simulado `tok_flaky` antes de aprobar. |
 | `INVOICING_FAIL` | sin definir | Con `1`, el proveedor de facturación falla y las facturas quedan en cola de reintento con alerta en el panel. |
 | `SHIPPING_PROVIDER` | `simulated` | Operador logístico. |
 | `SUBSCRIPTION_CUTOFF_DAY` | `25` | Día de corte para que un cambio de plan alcance la próxima caja. |

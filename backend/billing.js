@@ -1,9 +1,9 @@
 // HU-08, HU-12 y HU-15: suscripción, cobros recurrentes, conciliación y facturación electrónica.
 const { db } = require('./database');
 const config = require('./config');
-const mail = require('./mail');
-const payments = require('./payments');
-const invoicing = require('./invoicing');
+const mail = require('./adapters/mailer');
+const payments = require('./adapters/payments');
+const invoicing = require('./adapters/invoicing');
 
 const DAY_MS = 86400000;
 

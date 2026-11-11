@@ -1,8 +1,8 @@
 // HU-09 y HU-14: despacho con guía, seguimiento, stock por variante y cambios por talla.
 const { db } = require('./database');
 const config = require('./config');
-const mail = require('./mail');
-const shipping = require('./shipping');
+const mail = require('./adapters/mailer');
+const shipping = require('./adapters/logistics');
 const { calculateFit, scoreProduct } = require('./engine');
 const { stockInSize } = require('./catalog');
 

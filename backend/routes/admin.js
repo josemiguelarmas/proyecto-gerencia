@@ -4,7 +4,7 @@
 // endpoints live next to their domain (catalog, warehouse, payments, returns, ratings...).
 const { db } = require('../database');
 const config = require('../config');
-const mail = require('../mail');
+const mail = require('../adapters/mailer');
 const metrics = require('../metrics');
 const { sendJson, parseJsonBody } = require('../lib/http');
 

@@ -4,16 +4,18 @@ Todos los servicios externos están detrás de un adaptador con un proveedor `si
 
 | Servicio | Adaptador | Variable | Proveedor real |
 |---|---|---|---|
-| Pagos | `backend/payments/index.js` | `PAYMENT_PROVIDER` | por definir |
-| Facturación electrónica DIAN | `backend/invoicing/index.js` | `INVOICING_PROVIDER` | por definir |
-| Envíos | `backend/shipping/index.js` | `SHIPPING_PROVIDER` | por definir |
-| Correo | `backend/mail/index.js` | `MAIL_PROVIDER` | por definir |
+| Pagos | `backend/adapters/payments/index.js` | `PAYMENT_PROVIDER` | por definir |
+| Facturación electrónica DIAN | `backend/adapters/invoicing/index.js` | `INVOICING_PROVIDER` | por definir |
+| Envíos | `backend/adapters/logistics/index.js` | `SHIPPING_PROVIDER` | por definir |
+| Correo | `backend/adapters/mailer/index.js` | `MAIL_PROVIDER` | por definir |
 
-(La Fase 1b, tarea F6, puede mover los adaptadores a `backend/adapters/<servicio>/`; esta tabla se actualiza entonces.)
+Cada adaptador exporta `INTERFACE` (los métodos que todo proveedor debe implementar) y el proveedor elegido; `backend/adapters/select.js` falla al arrancar si la variable nombra un proveedor que no existe o que no implementa la interfaz. Para conectar uno real: implementar esos métodos y registrarlo en la tabla `PROVIDERS` del adaptador.
 
 ## Pagos
 
 Interfaz actual: `tokenize(card)`, `describeToken(token)`, `charge({ token, amountCOP, idempotencyKey, description, recurring })`, `buildWebhook(charge)`, `verifyWebhook(rawBody, signature)`.
+
+Proveedor simulado: además de los tokens de `tokenize()` (tarjetas 4242, 0002 y 0341), acepta `tok_ok` (aprueba), `tok_declined` (rechaza) y `tok_flaky` (falla los primeros N cobros con un error temporal que no queda en la caché de idempotencia; N = `PAYMENT_FLAKY_FAILURES`, 2 por defecto). Solo para pruebas: `setFlakyFailures(n)` y `resetFake()`.
 
 Para un proveedor real hace falta:
 - Cuenta de comercio en una pasarela que opere en Colombia y soporte cobros recurrentes con token.
@@ -24,7 +26,7 @@ Para un proveedor real hace falta:
 
 ## Facturación electrónica DIAN
 
-Interfaz actual: `issue(invoice)` devuelve CUFE, número y estado; puede fallar con `PROVIDER_UNAVAILABLE` (cola de reintentos) o `INVALID_BUYER`.
+Interfaz actual: `issue(invoice)` devuelve CUFE, número y estado; puede fallar con `PROVIDER_UNAVAILABLE` (cola de reintentos) o `INVALID_BUYER`. `isDown()` dice si el proveedor está caído. En el simulado la caída se activa con `INVOICING_FAIL=1` o, en pruebas, con `setDowntime(true)` (`setDowntime(null)` vuelve a la variable).
 
 Para un proveedor real hace falta:
 - Habilitación como facturador electrónico ante la DIAN y un proveedor tecnológico autorizado.
@@ -34,7 +36,7 @@ Para un proveedor real hace falta:
 
 ## Envíos
 
-Interfaz actual: `createShipment({ reference, address, recipient, sequence, now })` y `createReturnShipment(...)`, que devuelven número de guía, fecha estimada y eventos.
+Interfaz actual: `createShipment({ reference, address, recipient, sequence, now })` y `createReturnShipment(...)`, que devuelven número de guía, fecha estimada y eventos. Modo manual: `manualShipment({ reference, address, recipient, carrier, trackingNumber, now })` valida y arma la guía que bodega o administración registran a mano (error 400 con mensaje en español si falta la transportadora o el número no es válido). La ruta y la pantalla de bodega que lo usan son del stream E1.
 
 Para un proveedor real hace falta:
 - Contrato con un operador logístico con cobertura en Cali.
@@ -43,7 +45,7 @@ Para un proveedor real hace falta:
 
 ## Correo
 
-Interfaz actual: `send({ to, subject, body, type })` y `list()`. El proveedor simulado guarda los mensajes en `DATA_DIR/outbox.json` y el panel los muestra en "Bandeja de Salida".
+Interfaz actual: `send({ to, subject, body, type })` y `list()`. El proveedor simulado guarda los mensajes en `DATA_DIR/outbox.json` (el panel los muestra en "Bandeja de Salida") y también en memoria para las pruebas (`sentInMemory()`, `clearMemory()`).
 
 Para un proveedor real hace falta:
 - Cuenta en un servicio de correo transaccional y un dominio verificado (SPF, DKIM y DMARC).

@@ -3,7 +3,7 @@
 // sign-up or after an e-mail change. Kept here so auth and privacy routes share one copy.
 const { db } = require('../database');
 const config = require('../config');
-const mail = require('../mail');
+const mail = require('../adapters/mailer');
 
 function publicUser(user) {
   return {

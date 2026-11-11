@@ -1,9 +1,34 @@
 // Adaptador de pagos. PAYMENT_PROVIDER=simulated (único disponible) imita una pasarela
 // en modo de pruebas: tokeniza la tarjeta, cobra con llave de idempotencia y firma webhooks.
 // Nunca guarda el número completo ni el CVV: el token solo lleva marca, últimos 4 y el
-// comportamiento de la tarjeta de prueba.
+// comportamiento de la tarjeta de prueba. Además del token que produce tokenize(), el
+// simulado acepta los tokens fijos tok_ok (aprueba), tok_declined (rechaza) y tok_flaky
+// (falla los primeros N cobros por fallo temporal, N = PAYMENT_FLAKY_FAILURES, 2 por defecto).
 const crypto = require('crypto');
-const config = require('../config');
+const config = require('../../config');
+const { selectProvider } = require('../select');
+
+const INTERFACE = ['tokenize', 'describeToken', 'charge', 'buildWebhook', 'verifyWebhook'];
+
+// Tokens fijos para pruebas y demos: comportamiento, marca y últimos 4 que se muestran.
+const FIXED_TOKENS = {
+  tok_ok: { behavior: 'ok', brand: 'Prueba', last4: '4242' },
+  tok_declined: { behavior: 'decline', brand: 'Prueba', last4: '0002' },
+  tok_flaky: { behavior: 'flaky', brand: 'Prueba', last4: '1111' }
+};
+const FLAKY_REASON = 'La pasarela no respondió (fallo temporal SIMULADO). Intenta de nuevo.';
+
+function flakyDefault() {
+  const n = Number(process.env.PAYMENT_FLAKY_FAILURES);
+  return process.env.PAYMENT_FLAKY_FAILURES !== undefined && Number.isInteger(n) && n >= 0 ? n : 2;
+}
+let flakyFailuresLeft = flakyDefault();
+
+function behaviorOf(token) {
+  if (FIXED_TOKENS[token]) return FIXED_TOKENS[token].behavior;
+  const match = /^tok_sim_(ok|decline|firstonly)_/.exec(token || '');
+  return match ? match[1] : null;
+}
 
 // Tarjetas de prueba. Cualquier otra tarjeta válida (Luhn) se aprueba.
 const TEST_CARDS = {
@@ -81,6 +106,7 @@ const simulatedProvider = {
 
   // Marca y últimos 4 de un token, como la consulta de un medio de pago en la pasarela.
   describeToken(token) {
+    if (FIXED_TOKENS[token]) return { brand: FIXED_TOKENS[token].brand, last4: FIXED_TOKENS[token].last4 };
     const match = /^tok_sim_(ok|decline|firstonly)_([a-z]+)_(\d{4})_[a-f0-9]+$/.exec(token || '');
     if (!match) return null;
     return { brand: match[2].charAt(0).toUpperCase() + match[2].slice(1), last4: match[3] };
@@ -91,18 +117,22 @@ const simulatedProvider = {
     if (!idempotencyKey) throw paymentError('Falta la llave de idempotencia.');
     if (chargesByKey.has(idempotencyKey)) return { ...chargesByKey.get(idempotencyKey), idempotentReplay: true };
 
-    const match = /^tok_sim_(ok|decline|firstonly)_/.exec(token || '');
+    const behavior = behaviorOf(token);
     let status = 'APPROVED';
     let reason = null;
-    if (!match) {
+    if (!behavior) {
       status = 'DECLINED';
       reason = 'Medio de pago no reconocido';
-    } else if (match[1] === 'decline') {
+    } else if (behavior === 'decline') {
       status = 'DECLINED';
       reason = DECLINE_REASON;
-    } else if (match[1] === 'firstonly' && recurring) {
+    } else if (behavior === 'firstonly' && recurring) {
       status = 'DECLINED';
       reason = RECURRING_DECLINE_REASON;
+    } else if (behavior === 'flaky' && flakyFailuresLeft > 0) {
+      flakyFailuresLeft--;
+      status = 'DECLINED';
+      reason = FLAKY_REASON;
     }
 
     const result = {
@@ -115,7 +145,9 @@ const simulatedProvider = {
       provider: 'simulated',
       createdAt: new Date().toISOString()
     };
-    chargesByKey.set(idempotencyKey, result);
+    // Un fallo temporal (tok_flaky) no queda guardado: reintentar con la misma llave vuelve a cobrar,
+    // como en una pasarela real cuando la respuesta fue un error de disponibilidad.
+    if (reason !== FLAKY_REASON) chargesByKey.set(idempotencyKey, result);
     return result;
   },
 
@@ -131,13 +163,19 @@ const simulatedProvider = {
   verifyWebhook(rawBody, signature) {
     if (typeof signature !== 'string' || !/^[a-f0-9]{64}$/.test(signature)) return false;
     return crypto.timingSafeEqual(Buffer.from(sign(rawBody), 'hex'), Buffer.from(signature, 'hex'));
+  },
+
+  // Solo para pruebas: cuántos cobros con tok_flaky fallan antes de aprobar, y reinicio del
+  // estado en memoria (contador de tok_flaky y cobros guardados por llave de idempotencia).
+  setFlakyFailures(n) {
+    flakyFailuresLeft = n;
+  },
+  resetFake() {
+    flakyFailuresLeft = flakyDefault();
+    chargesByKey.clear();
   }
 };
 
 const PROVIDERS = { simulated: simulatedProvider };
-const providerName = process.env.PAYMENT_PROVIDER || 'simulated';
-if (!PROVIDERS[providerName]) {
-  throw new Error(`PAYMENT_PROVIDER desconocido: ${providerName}. Disponibles: ${Object.keys(PROVIDERS).join(', ')}`);
-}
 
-module.exports = PROVIDERS[providerName];
+module.exports = Object.assign(selectProvider({ variable: 'PAYMENT_PROVIDER', providers: PROVIDERS, methods: INTERFACE }), { INTERFACE });

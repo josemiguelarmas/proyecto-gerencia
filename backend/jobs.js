@@ -1,6 +1,6 @@
 // Tareas programadas del backend.
 const { db } = require('./database');
-const mail = require('./mail');
+const mail = require('./adapters/mailer');
 const config = require('./config');
 const clock = require('./lib/clock');
 

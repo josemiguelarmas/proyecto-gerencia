@@ -1,10 +1,16 @@
 // Adaptador de correo. MAIL_PROVIDER=simulated (único disponible) guarda cada
-// mensaje en DATA_DIR/outbox.json (TCB_OUTBOX_FILE) en lugar de enviarlo.
+// mensaje en DATA_DIR/outbox.json (TCB_OUTBOX_FILE) en lugar de enviarlo; el panel lo muestra
+// en "Bandeja de Salida". También guarda en memoria los mensajes de este proceso
+// (sentInMemory/clearMemory) para que las pruebas los revisen sin leer el archivo.
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { selectProvider } = require('../select');
 
-const OUTBOX_FILE = require('../config/env').OUTBOX_FILE;
+const INTERFACE = ['send', 'list'];
+const memory = [];
+
+const OUTBOX_FILE = require('../../config/env').OUTBOX_FILE;
 
 function readOutbox() {
   if (!fs.existsSync(OUTBOX_FILE)) return [];
@@ -29,19 +35,22 @@ const simulatedProvider = {
       createdAt: new Date().toISOString()
     };
     outbox.push(message);
+    memory.push(message);
     fs.mkdirSync(path.dirname(OUTBOX_FILE), { recursive: true });
     fs.writeFileSync(OUTBOX_FILE, JSON.stringify(outbox, null, 2), 'utf8');
     return message;
   },
   list() {
     return readOutbox().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  },
+  sentInMemory() {
+    return [...memory];
+  },
+  clearMemory() {
+    memory.length = 0;
   }
 };
 
 const PROVIDERS = { simulated: simulatedProvider };
-const providerName = process.env.MAIL_PROVIDER || 'simulated';
-if (!PROVIDERS[providerName]) {
-  throw new Error(`MAIL_PROVIDER desconocido: ${providerName}. Disponibles: ${Object.keys(PROVIDERS).join(', ')}`);
-}
 
-module.exports = PROVIDERS[providerName];
+module.exports = Object.assign(selectProvider({ variable: 'MAIL_PROVIDER', providers: PROVIDERS, methods: INTERFACE }), { INTERFACE });

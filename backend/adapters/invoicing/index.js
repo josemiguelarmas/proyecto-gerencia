@@ -1,14 +1,28 @@
 // Adaptador de facturación electrónica. INVOICING_PROVIDER=simulated (único disponible)
 // imita el ambiente de habilitación de la DIAN: valida el documento, devuelve un CUFE
-// simulado y nunca transmite nada. INVOICING_FAIL=1 simula que el proveedor no responde.
+// simulado y nunca transmite nada. INVOICING_FAIL=1 (o setDowntime(true) en pruebas) simula
+// que el proveedor no responde; las facturas quedan en la cola de reintentos de billing.js.
 const crypto = require('crypto');
+const { selectProvider } = require('../select');
+
+const INTERFACE = ['issue', 'isDown'];
+let downtime = null; // null: lo decide INVOICING_FAIL; true/false: fijado con setDowntime()
 
 const simulatedProvider = {
   name: 'simulated',
   environment: 'HABILITACION',
 
+  isDown() {
+    return downtime === null ? process.env.INVOICING_FAIL === '1' : downtime;
+  },
+
+  // Interruptor de caída del proveedor para pruebas y demos; null vuelve a leer INVOICING_FAIL.
+  setDowntime(value) {
+    downtime = value === null ? null : Boolean(value);
+  },
+
   issue(invoice) {
-    if (process.env.INVOICING_FAIL === '1') {
+    if (this.isDown()) {
       const err = new Error('El proveedor de facturación no respondió (SIMULADO, INVOICING_FAIL=1).');
       err.code = 'PROVIDER_UNAVAILABLE';
       throw err;
@@ -28,9 +42,5 @@ const simulatedProvider = {
 };
 
 const PROVIDERS = { simulated: simulatedProvider };
-const providerName = process.env.INVOICING_PROVIDER || 'simulated';
-if (!PROVIDERS[providerName]) {
-  throw new Error(`INVOICING_PROVIDER desconocido: ${providerName}. Disponibles: ${Object.keys(PROVIDERS).join(', ')}`);
-}
 
-module.exports = PROVIDERS[providerName];
+module.exports = Object.assign(selectProvider({ variable: 'INVOICING_PROVIDER', providers: PROVIDERS, methods: INTERFACE }), { INTERFACE });
