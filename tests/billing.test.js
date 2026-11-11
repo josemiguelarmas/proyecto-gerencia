@@ -264,3 +264,33 @@ test('SCRUM-62: el cobro mensual fallido se reintenta a +1, +3 y +5 días, avisa
   billing.runRecurringBilling(at(9));
   assert.deepEqual(db.getPayments(c.userId).map(p => p.kind).reverse(), ['INITIAL', 'RECURRING', 'RETRY', 'RETRY', 'RETRY']);
 });
+
+// ---------------------------------------------------------------- HU-16 / HU-09 interfaces
+test('hasPendingCharge: verdadero con cobro en reintento, PAST_DUE o pago PENDING', async () => {
+  const c = await newClient();
+  assert.equal(billing.hasPendingCharge(c.userId), false, 'sin suscripción');
+  assert.equal((await subscribe(c, { paymentToken: 'tok_ok' })).status, 201);
+  assert.equal(billing.hasPendingCharge(c.userId), false, 'al día');
+  db.saveSubscription(c.userId, { dunning: { period: '2027-01-10', attempts: 1, nextRetryAt: new Date().toISOString() } });
+  assert.equal(billing.hasPendingCharge(c.userId), true, 'cobro fallido en reintento');
+  db.saveSubscription(c.userId, { dunning: null, status: 'PAST_DUE' });
+  assert.equal(billing.hasPendingCharge(c.userId), true, 'PAST_DUE');
+  db.saveSubscription(c.userId, { status: 'ACTIVE' });
+  const pending = db.addPayment({ userId: c.userId, plan: 'esencial', period: '2027-01-10', kind: 'RECURRING', amountCOP: 129900, feeCOP: 0, netCOP: 129900, status: 'PENDING', idempotencyKey: `pend_${c.userId}` });
+  assert.equal(billing.hasPendingCharge(c.userId), true, 'pago PENDING en la pasarela');
+  pending.status = 'DECLINED';
+  assert.equal(billing.hasPendingCharge(c.userId), false);
+});
+
+test('isCyclePaid: el ciclo AAAA-MM está pago si hay un cobro aprobado con vencimiento en ese mes', async () => {
+  const c = await newClient();
+  billing.subscribe(db.findUserById(c.userId), { plan: 'esencial', paymentToken: 'tok_ok', fiscal: FISCAL }, new Date(2027, 2, 10, 12));
+  const sub = db.getSubscription(c.userId);
+  assert.equal(billing.isCyclePaid(c.userId, '2027-03'), true);
+  assert.equal(billing.isCyclePaid(sub.id, '2027-03'), true, 'acepta el id de la suscripción');
+  assert.equal(billing.isCyclePaid(c.userId, '2027-04'), false, 'abril aún no se cobra');
+  billing.runRecurringBilling(new Date(2027, 3, 10, 13));
+  assert.equal(billing.isCyclePaid(c.userId, '2027-04'), true);
+  assert.equal(billing.isCyclePaid('usr_no_existe', '2027-04'), false);
+  assert.throws(() => billing.isCyclePaid(c.userId, '2027-4'), /AAAA-MM/);
+});

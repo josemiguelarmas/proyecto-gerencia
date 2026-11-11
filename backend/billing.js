@@ -1,4 +1,10 @@
-// HU-08, HU-12 y HU-15: suscripción, cobros recurrentes, conciliación y facturación electrónica.
+// HU-08, HU-12, HU-13 y HU-15: suscripción, cobros recurrentes, conciliación y facturación electrónica.
+// Subscription state machine (TRANSITIONS, canTransition, assertTransition), subscribing with a
+// gateway token (verified e-mail required, cycle anchored to the start day), monthly charges with
+// retries then PAST_DUE, the idempotent signed webhook and the reconciliation job, pause/resume/
+// plan change with the cutoff day, cancellation with a retention offer, and invoices with their
+// retry queue. Interfaces for other streams: hasPendingCharge(userId) for HU-16 account deletion
+// and isCyclePaid(subscriptionId | userId, 'AAAA-MM') for HU-09 payment-gated dispatch.
 const { db } = require('./database');
 const config = require('./config');
 const mail = require('./adapters/mailer');
@@ -638,6 +644,29 @@ function cancel(userId, { confirm, reason, comment } = {}, now = new Date()) {
   };
 }
 
+// ---------------------------------------------------------------
+// Interfaces for other streams (HU-16 deletion, HU-09 payment-gated dispatch)
+// ---------------------------------------------------------------
+
+// HU-16/SCRUM-102: true while money is still in flight for the user: a charge PENDING at the
+// gateway, a failed charge in its retry schedule (dunning) or a PAST_DUE subscription.
+// The account deletion route must refuse to delete while this is true.
+function hasPendingCharge(userId) {
+  const sub = db.getSubscription(userId);
+  if (sub.status === 'PAST_DUE' || sub.dunning) return true;
+  return db.getPayments(userId).some(p => p.status === 'PENDING');
+}
+
+// HU-09: whether the billing cycle `cycle` ('AAAA-MM') of a subscription is paid, that is,
+// there is an APPROVED charge whose due date (payment.period) falls in that month. `ref` is
+// a subscription id or a user id. It only looks at payments; dispatch also checks the status.
+function isCyclePaid(ref, cycle) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(cycle))) throw httpError(400, 'El ciclo debe tener el formato AAAA-MM.');
+  const sub = db.data.subscriptions.find(s => s.id === ref) || db.data.subscriptions.find(s => s.userId === ref);
+  if (!sub) return false;
+  return db.getPayments(sub.userId).some(p => p.status === 'APPROVED' && String(p.period || '').startsWith(cycle));
+}
+
 function paymentsReport() {
   const all = db.getPayments();
   const approved = all.filter(p => p.status === 'APPROVED');
@@ -685,6 +714,8 @@ module.exports = {
   changePlan,
   planChangeEffect,
   cancel,
+  hasPendingCharge,
+  isCyclePaid,
   assertTransition,
   paymentsReport
 };
