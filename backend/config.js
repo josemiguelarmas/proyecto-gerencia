@@ -1,8 +1,9 @@
 // Configuración central de reglas de negocio (Sprint 2).
 // Las constantes compartidas con el frontend se exponen en GET /api/config.
+const env = require('./config/env');
 
 const POLICY = {
-  version: 'v1.0',
+  version: env.POLICY_VERSION,
   pendingLegalReview: true,
   title: 'Política de Tratamiento de Datos Personales',
   text: [

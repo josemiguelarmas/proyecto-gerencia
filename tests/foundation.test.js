@@ -2,6 +2,7 @@
 // temporary data, and backend code that reads backend/lib/clock.js follows the injected time.
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
 const path = require('path');
 const { startServer } = require('./helpers/server');
 const { clock, withClock, DAY_MS } = require('./helpers/clock');
@@ -21,8 +22,12 @@ after(async () => {
 
 test('el servidor de prueba usa un puerto efímero y una carpeta de datos temporal', async () => {
   assert.ok(app.port > 0 && app.port !== 3000 && app.port !== 3199);
+  const env = require('../backend/config/env');
   const repoData = path.join(__dirname, '..', 'backend', 'data');
-  assert.ok(!path.resolve(process.env.TCB_DB_FILE).startsWith(repoData), 'la base de prueba no vive en el repo');
+  assert.equal(env.DATA_DIR, app.dataDir);
+  assert.ok(!env.DB_FILE.startsWith(repoData), 'la base de prueba no vive en el repo');
+  assert.ok(fs.existsSync(path.join(app.dataDir, 'db.json')), 'la base se sembró desde seed/');
+  assert.ok(fs.existsSync(path.join(app.dataDir, 'catalog.json')), 'el catálogo se copió desde seed/');
   const res = await app.get('/api/config');
   assert.equal(res.status, 200);
   assert.ok(res.body && typeof res.body === 'object');

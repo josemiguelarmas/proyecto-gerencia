@@ -2,8 +2,12 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const DB_FILE = process.env.TCB_DB_FILE || path.join(__dirname, 'data', 'db.json');
-const CATALOG_FILE = process.env.TCB_CATALOG_FILE || path.join(__dirname, 'data', 'catalog.json');
+const env = require('./config/env');
+
+// Runtime data lives in DATA_DIR (default backend/data/runtime, git-ignored). On first boot
+// the database and the catalog are created from the committed seeds in backend/data/seed/.
+const DB_FILE = env.DB_FILE;
+const CATALOG_FILE = env.CATALOG_FILE;
 const { normalizeProduct } = require('./catalog');
 
 function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
@@ -38,6 +42,9 @@ class Database {
   }
 
   init() {
+    [DB_FILE, CATALOG_FILE].forEach(file => fs.mkdirSync(path.dirname(file), { recursive: true }));
+    if (!fs.existsSync(CATALOG_FILE)) fs.copyFileSync(env.SEED_CATALOG_FILE, CATALOG_FILE);
+
     // Load catalog
     if (fs.existsSync(CATALOG_FILE)) {
       try {
@@ -146,185 +153,14 @@ class Database {
   }
 
   seedInitial() {
-    const demoSalt = crypto.randomBytes(16).toString('hex');
-    const demoPasswordHash = hashPassword('demo123', demoSalt);
-    const demoUserId = 'usr_demo_01';
-
-    const adminSalt = crypto.randomBytes(16).toString('hex');
-    const adminPasswordHash = hashPassword('admin123', adminSalt);
-    const adminUserId = 'usr_admin_01';
-
-    this.data = {
-      ...emptyData(),
-      users: [
-        {
-          id: demoUserId,
-          name: 'Jose Miguel Armas',
-          email: 'demo@theclothesbox.co',
-          passwordHash: demoPasswordHash,
-          role: 'CLIENT',
-          createdAt: '2026-08-01T10:00:00.000Z'
-        },
-        {
-          id: adminUserId,
-          name: 'Administrador de Operaciones',
-          email: 'admin@theclothesbox.co',
-          passwordHash: adminPasswordHash,
-          role: 'ADMIN',
-          createdAt: '2026-08-01T08:00:00.000Z'
-        }
-      ],
-      profiles: [
-        {
-          userId: demoUserId,
-          done: true,
-          styles: ['urbano', 'retro', 'minimal'],
-          occasions: ['clase', 'fiesta'],
-          fit: 'regular',
-          line: 'u',
-          risk: 1,
-          plan: 'esencial',
-          measures: {
-            height: 174,
-            weight: 68,
-            build: 'media',
-            usual: 'M',
-            refBrand: 'norte',
-            refSize: 'M'
-          },
-          brandAdj: {
-            ceiba: 0.5,
-            mono: -0.5,
-            norte: 0
-          },
-          updatedAt: '2026-08-01T10:05:00.000Z'
-        }
-      ],
-      boxes: [
-        {
-          id: 'box_001',
-          userId: demoUserId,
-          cycle: 1,
-          status: 'RATED',
-          plan: 'esencial',
-          address: 'Calle 18 # 122-135, Pance, Cali',
-          createdAt: '2026-08-05T09:00:00.000Z',
-          deliveredAt: '2026-08-10T15:30:00.000Z',
-          estimatedDelivery: '2026-08-10',
-          itemIds: ['prod-01', 'prod-08', 'prod-13'],
-          unboxed: true
-        },
-        {
-          id: 'box_002',
-          userId: demoUserId,
-          cycle: 2,
-          status: 'RATED',
-          plan: 'esencial',
-          address: 'Calle 18 # 122-135, Pance, Cali',
-          createdAt: '2026-09-05T09:00:00.000Z',
-          deliveredAt: '2026-09-09T14:15:00.000Z',
-          estimatedDelivery: '2026-09-09',
-          itemIds: ['prod-02', 'prod-09', 'prod-16'],
-          unboxed: true
-        },
-        {
-          id: 'box_003',
-          userId: demoUserId,
-          cycle: 3,
-          status: 'DELIVERED',
-          plan: 'esencial',
-          address: 'Calle 18 # 122-135, Pance, Cali',
-          createdAt: '2026-10-01T08:00:00.000Z',
-          deliveredAt: '2026-10-02T11:00:00.000Z',
-          estimatedDelivery: '2026-10-02',
-          itemIds: ['prod-04', 'prod-10', 'prod-14'],
-          unboxed: false
-        }
-      ],
-      ratings: [
-        {
-          id: 'rat_001',
-          boxId: 'box_001',
-          userId: demoUserId,
-          productId: 'prod-01',
-          score: 5,
-          liked: true,
-          styleFeedback: 'Me encantó el corte y la caída pesada de la tela.',
-          feedback: 'El corte boxy y la textura pesada quedaron impecables.',
-          createdAt: '2026-08-11T12:00:00.000Z'
-        },
-        {
-          id: 'rat_002',
-          boxId: 'box_001',
-          userId: demoUserId,
-          productId: 'prod-08',
-          score: 4,
-          liked: true,
-          styleFeedback: 'Buen lavado vintage, combina con todo.',
-          feedback: 'Muy buen denim, largo exacto.',
-          createdAt: '2026-08-11T12:05:00.000Z'
-        },
-        {
-          id: 'rat_003',
-          boxId: 'box_001',
-          userId: demoUserId,
-          productId: 'prod-13',
-          score: 5,
-          liked: true,
-          styleFeedback: 'La pana es cómoda y el color terracota muy original.',
-          feedback: 'La pana es suave y abriga sin sofocar.',
-          createdAt: '2026-08-11T12:10:00.000Z'
-        },
-        {
-          id: 'rat_004',
-          boxId: 'box_002',
-          userId: demoUserId,
-          productId: 'prod-02',
-          score: 4,
-          liked: true,
-          styleFeedback: 'Lino de muy buena calidad para el clima de Cali.',
-          feedback: 'Lino fresco para las tardes cálidas.',
-          createdAt: '2026-09-10T16:00:00.000Z'
-        },
-        {
-          id: 'rat_005',
-          boxId: 'box_002',
-          userId: demoUserId,
-          productId: 'prod-09',
-          score: 3,
-          liked: false,
-          styleFeedback: 'Corte un poco formal para mis gustos habituales.',
-          feedback: 'Corte un poco formal para mis gustos habituales.',
-          createdAt: '2026-09-10T16:05:00.000Z'
-        },
-        {
-          id: 'rat_006',
-          boxId: 'box_002',
-          userId: demoUserId,
-          productId: 'prod-16',
-          score: 5,
-          liked: true,
-          styleFeedback: 'Chaqueta clásica de excelente calidad.',
-          feedback: 'Chaqueta clásica de excelente calidad.',
-          createdAt: '2026-09-10T16:10:00.000Z'
-        }
-      ],
-      returns: [
-        {
-          id: 'ret_001',
-          userId: demoUserId,
-          boxId: 'box_002',
-          productId: 'prod-09',
-          reason: 'TOO_LARGE',
-          requestedSize: 'S',
-          notes: 'La pretina en talla M quedó unos 3 cm más amplia de lo esperado.',
-          status: 'COMPLETED',
-          pickupAddress: 'Calle 18 # 122-135, Pance, Cali',
-          scheduledPickupDate: '2026-09-12',
-          createdAt: '2026-09-11T10:00:00.000Z'
-        }
-      ]
-    };
+    // The seed file has no passwords. Until Phase 1b seeds admin and stylist from env,
+    // the demo client and the admin keep their historical demo passwords set here.
+    const seed = JSON.parse(fs.readFileSync(env.SEED_DB_FILE, 'utf8'));
+    const demoPasswords = { 'demo@theclothesbox.co': 'demo123', 'admin@theclothesbox.co': 'admin123' };
+    seed.users.forEach(u => {
+      if (demoPasswords[u.email]) u.passwordHash = hashPassword(demoPasswords[u.email]);
+    });
+    this.data = { ...emptyData(), ...seed };
     this.save();
   }
 

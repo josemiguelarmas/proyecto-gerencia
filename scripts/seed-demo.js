@@ -6,7 +6,7 @@
 // Uso:
 //   node scripts/seed-demo.js            agrega los datos de prueba (reemplaza los de una corrida anterior)
 //   node scripts/seed-demo.js --reset    solo borra los datos de prueba
-// Escribe en backend/data/db.json, o en TCB_DB_FILE si está definida.
+// Escribe en DATA_DIR/db.json (por defecto backend/data/runtime/db.json), o en TCB_DB_FILE si está definida.
 const crypto = require('crypto');
 
 const SEED_DOMAIN = 'seed.theclothesbox.test';

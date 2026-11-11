@@ -75,8 +75,8 @@ prototipo-web/
 │   ├── database.js        # Base de datos JSON atómica con métricas y persistencia
 │   ├── engine.js          # Motor algorítmico de tallaje antropométrico
 │   └── data/
-│       ├── catalog.json   # 18 prendas de marcas colombianas con fotos reales y medidas en cm
-│       └── db.json        # Almacenamiento de usuarios con roles, cajas y devoluciones
+│       ├── seed/          # Semillas versionadas: catalog.json (18 prendas) y db.json (sin contraseñas)
+│       └── runtime/       # Datos de ejecución (DATA_DIR por defecto, fuera de git)
 │
 ├── frontend/
 │   ├── index.html         # Shell SPA accesible con fuentes Fraunces/Inter
@@ -113,10 +113,11 @@ prototipo-web/
 ## 5. Instrucciones de Ejecución y Pruebas
 
 ### Iniciar la Aplicación Full-Stack
-```bash
+El servidor no arranca sin `JWT_SECRET` y `DATA_ENCRYPTION_KEY` (ver sección 7). En PowerShell:
+```powershell
+$env:JWT_SECRET = "pon-aqui-un-secreto-largo-y-aleatorio"
+$env:DATA_ENCRYPTION_KEY = "pon-aqui-otra-clave-larga-y-aleatoria"
 npm start
-# o directamente:
-node server.js
 ```
 Abre en tu navegador:
 ```text
@@ -199,11 +200,30 @@ No hay credenciales reales. Cada servicio es un adaptador con la misma interfaz 
 | Operador logístico | `backend/shipping/index.js` | Guías de despacho `TCB-AAAAMMDD-0001` y de devolución `TCB-DEV-AAAAMMDD-0001`. |
 
 ### Variables de entorno
-Todas son opcionales; sin ellas la app corre con los valores por defecto.
+Se leen en `backend/config/env.js` (las reglas de negocio siguen en `backend/config.js`). La lista completa con comentarios está en `.env.example`. Node no lee `.env` solo: define las variables en la terminal. `JWT_SECRET` y `DATA_ENCRYPTION_KEY` son obligatorias salvo con `NODE_ENV=test`; sin ellas `npm start` termina con código 1 y dice cuáles faltan. Las demás son opcionales.
+
+```powershell
+$env:JWT_SECRET = "pon-aqui-un-secreto-largo-y-aleatorio"
+$env:DATA_ENCRYPTION_KEY = "pon-aqui-otra-clave-larga-y-aleatoria"
+$env:DATA_DIR = "C:/tcb-datos"          # opcional, por defecto backend/data/runtime
+$env:PORT = "3000"                       # opcional
+npm start
+# Para volver a los valores por defecto en la misma terminal:
+Remove-Item Env:DATA_DIR
+```
+
+**Datos.** Lo versionado son las semillas de `backend/data/seed/` (`catalog.json` y `db.json`, esta última sin contraseñas). Los datos de ejecución (base, catálogo con stock descontado y bandeja de salida) viven en `DATA_DIR`, que se crea al arrancar y está en `.gitignore`. Si `DATA_DIR` está vacío, la base y el catálogo se crean desde las semillas. Un `backend/data/db.json` local de una versión anterior ya no se usa ni se versiona; se puede borrar.
 
 | Variable | Por defecto | Uso |
 | :--- | :--- | :--- |
+| `JWT_SECRET` | obligatoria | Secreto de firma de los JWT. |
+| `DATA_ENCRYPTION_KEY` | obligatoria | Clave de cifrado de datos sensibles (se usa a partir de Fase 1b). |
+| `NODE_ENV` | `development` | Con `test` no se exigen los secretos. |
 | `PORT` | `3000` | Puerto del servidor. |
+| `DATA_DIR` | `backend/data/runtime` | Carpeta de datos de ejecución. |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `STYLIST_EMAIL`, `STYLIST_PASSWORD` | sin definir | Cuentas internas; se siembran desde aquí en Fase 1b. |
+| `CORS_ORIGINS` | sin definir | Orígenes permitidos, separados por coma (Fase 1b). |
+| `POLICY_VERSION` | `v1.0` | Versión vigente de la política de datos. |
 | `APP_BASE_URL` | `http://localhost:3000` | Enlaces dentro de los correos. |
 | `MAIL_PROVIDER` | `simulated` | Proveedor de correo. |
 | `PAYMENT_PROVIDER` | `simulated` | Pasarela de pagos. |
@@ -215,9 +235,9 @@ Todas son opcionales; sin ellas la app corre con los valores por defecto.
 | `SUBSCRIPTION_CUTOFF_DAY` | `25` | Día de corte para que un cambio de plan alcance la próxima caja. |
 | `RETURN_WINDOW_BUSINESS_DAYS` | `5` | Plazo del cambio por talla en días hábiles desde la entrega. |
 | `REVIEW_REMINDER_DAYS` | `3` | Días desde la entrega para recordar la calificación. |
-| `TCB_DB_FILE` | `backend/data/db.json` | Archivo de la base. Las pruebas y los scripts lo usan para trabajar sobre una copia. |
-| `TCB_CATALOG_FILE` | `backend/data/catalog.json` | Archivo del catálogo. |
-| `TCB_OUTBOX_FILE` | `backend/data/outbox.json` | Bandeja de salida de correos. |
+| `TCB_DB_FILE` | `DATA_DIR/db.json` | Archivo de la base. Las pruebas y los scripts lo usan para trabajar sobre una copia. |
+| `TCB_CATALOG_FILE` | `DATA_DIR/catalog.json` (copiado de `backend/data/seed/catalog.json`) | Archivo del catálogo. |
+| `TCB_OUTBOX_FILE` | `DATA_DIR/outbox.json` | Bandeja de salida de correos. |
 
 El umbral de alerta de churn (9 % por defecto) se cambia desde Panel → KPIs del mes y queda guardado en la base.
 
@@ -230,8 +250,8 @@ node scripts/migrate-catalog-variants.js   # migración del catálogo a variante
 ```
 
 Los usuarios del seed usan correos `@seed.theclothesbox.test`, no tienen contraseña ni medio de pago, y el cobro recurrente y la generación de cajas los ignoran. Para no tocar la base real, el seed se puede correr sobre una copia:
-```bash
-TCB_DB_FILE=/ruta/copia-db.json node scripts/seed-demo.js
+```powershell
+$env:TCB_DB_FILE = "C:/ruta/copia-db.json"; node scripts/seed-demo.js
 ```
 
 ### Pantallas nuevas del Sprint 2

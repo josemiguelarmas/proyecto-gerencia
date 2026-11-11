@@ -4,14 +4,13 @@ const os = require('os');
 const path = require('path');
 const assert = require('assert');
 
-// Las pruebas corren sobre una copia temporal de la base y de la bandeja de salida,
-// para no ensuciar backend/data/db.json.
+// Las pruebas corren sobre una base, un catálogo y una bandeja de salida temporales.
+// La base no existe al arrancar, así que se crea desde backend/data/seed/db.json.
 const TMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'tcb-test-'));
 process.env.TCB_DB_FILE = path.join(TMP_DIR, 'db.json');
 process.env.TCB_OUTBOX_FILE = path.join(TMP_DIR, 'outbox.json');
 process.env.TCB_CATALOG_FILE = path.join(TMP_DIR, 'catalog.json');
-fs.copyFileSync(path.join(__dirname, '..', 'backend', 'data', 'db.json'), process.env.TCB_DB_FILE);
-fs.copyFileSync(path.join(__dirname, '..', 'backend', 'data', 'catalog.json'), process.env.TCB_CATALOG_FILE);
+fs.copyFileSync(path.join(__dirname, '..', 'backend', 'data', 'seed', 'catalog.json'), process.env.TCB_CATALOG_FILE);
 
 const { startServer } = require('../backend/server');
 const { db } = require('../backend/database');
@@ -461,7 +460,7 @@ async function runPrompt2Tests({ token, adminToken, stylistToken, deliveredBox }
 
   // 28. HU-05: todo el catálogo migrado tiene variantes con stock inicial 10
   // Ajuste Prompt 4: se revisa el catálogo versionado; en memoria los despachos de HU-09 ya descontaron stock.
-  const migrated = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'backend', 'data', 'catalog.json'), 'utf8'));
+  const migrated = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'backend', 'data', 'seed', 'catalog.json'), 'utf8'));
   assert.ok(migrated.length >= 18);
   migrated.slice(0, 18).forEach(p => {
     assert.ok(Array.isArray(p.variants) && p.variants.length > 0, `${p.id} sin variantes`);

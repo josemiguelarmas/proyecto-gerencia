@@ -1,0 +1,187 @@
+{
+  "users": [
+    {
+      "id": "usr_demo_01",
+      "name": "Jose Miguel Armas",
+      "email": "demo@theclothesbox.co",
+      "role": "CLIENT",
+      "createdAt": "2026-08-01T10:00:00.000Z"
+    },
+    {
+      "id": "usr_admin_01",
+      "name": "Administrador de Operaciones",
+      "email": "admin@theclothesbox.co",
+      "role": "ADMIN",
+      "createdAt": "2026-08-01T08:00:00.000Z"
+    }
+  ],
+  "profiles": [
+    {
+      "userId": "usr_demo_01",
+      "done": true,
+      "styles": [
+        "urbano",
+        "retro",
+        "minimal"
+      ],
+      "occasions": [
+        "clase",
+        "fiesta"
+      ],
+      "fit": "regular",
+      "line": "u",
+      "risk": 1,
+      "plan": "esencial",
+      "measures": {
+        "height": 174,
+        "weight": 68,
+        "build": "media",
+        "usual": "M",
+        "refBrand": "norte",
+        "refSize": "M"
+      },
+      "brandAdj": {
+        "ceiba": 0.5,
+        "mono": -0.5,
+        "norte": 0
+      },
+      "updatedAt": "2026-08-01T10:05:00.000Z"
+    }
+  ],
+  "boxes": [
+    {
+      "id": "box_001",
+      "userId": "usr_demo_01",
+      "cycle": 1,
+      "status": "RATED",
+      "plan": "esencial",
+      "address": "Calle 18 # 122-135, Pance, Cali",
+      "createdAt": "2026-08-05T09:00:00.000Z",
+      "deliveredAt": "2026-08-10T15:30:00.000Z",
+      "estimatedDelivery": "2026-08-10",
+      "itemIds": [
+        "prod-01",
+        "prod-08",
+        "prod-13"
+      ],
+      "unboxed": true
+    },
+    {
+      "id": "box_002",
+      "userId": "usr_demo_01",
+      "cycle": 2,
+      "status": "RATED",
+      "plan": "esencial",
+      "address": "Calle 18 # 122-135, Pance, Cali",
+      "createdAt": "2026-09-05T09:00:00.000Z",
+      "deliveredAt": "2026-09-09T14:15:00.000Z",
+      "estimatedDelivery": "2026-09-09",
+      "itemIds": [
+        "prod-02",
+        "prod-09",
+        "prod-16"
+      ],
+      "unboxed": true
+    },
+    {
+      "id": "box_003",
+      "userId": "usr_demo_01",
+      "cycle": 3,
+      "status": "DELIVERED",
+      "plan": "esencial",
+      "address": "Calle 18 # 122-135, Pance, Cali",
+      "createdAt": "2026-10-01T08:00:00.000Z",
+      "deliveredAt": "2026-10-02T11:00:00.000Z",
+      "estimatedDelivery": "2026-10-02",
+      "itemIds": [
+        "prod-04",
+        "prod-10",
+        "prod-14"
+      ],
+      "unboxed": false
+    }
+  ],
+  "ratings": [
+    {
+      "id": "rat_001",
+      "boxId": "box_001",
+      "userId": "usr_demo_01",
+      "productId": "prod-01",
+      "score": 5,
+      "liked": true,
+      "styleFeedback": "Me encantó el corte y la caída pesada de la tela.",
+      "feedback": "El corte boxy y la textura pesada quedaron impecables.",
+      "createdAt": "2026-08-11T12:00:00.000Z"
+    },
+    {
+      "id": "rat_002",
+      "boxId": "box_001",
+      "userId": "usr_demo_01",
+      "productId": "prod-08",
+      "score": 4,
+      "liked": true,
+      "styleFeedback": "Buen lavado vintage, combina con todo.",
+      "feedback": "Muy buen denim, largo exacto.",
+      "createdAt": "2026-08-11T12:05:00.000Z"
+    },
+    {
+      "id": "rat_003",
+      "boxId": "box_001",
+      "userId": "usr_demo_01",
+      "productId": "prod-13",
+      "score": 5,
+      "liked": true,
+      "styleFeedback": "La pana es cómoda y el color terracota muy original.",
+      "feedback": "La pana es suave y abriga sin sofocar.",
+      "createdAt": "2026-08-11T12:10:00.000Z"
+    },
+    {
+      "id": "rat_004",
+      "boxId": "box_002",
+      "userId": "usr_demo_01",
+      "productId": "prod-02",
+      "score": 4,
+      "liked": true,
+      "styleFeedback": "Lino de muy buena calidad para el clima de Cali.",
+      "feedback": "Lino fresco para las tardes cálidas.",
+      "createdAt": "2026-09-10T16:00:00.000Z"
+    },
+    {
+      "id": "rat_005",
+      "boxId": "box_002",
+      "userId": "usr_demo_01",
+      "productId": "prod-09",
+      "score": 3,
+      "liked": false,
+      "styleFeedback": "Corte un poco formal para mis gustos habituales.",
+      "feedback": "Corte un poco formal para mis gustos habituales.",
+      "createdAt": "2026-09-10T16:05:00.000Z"
+    },
+    {
+      "id": "rat_006",
+      "boxId": "box_002",
+      "userId": "usr_demo_01",
+      "productId": "prod-16",
+      "score": 5,
+      "liked": true,
+      "styleFeedback": "Chaqueta clásica de excelente calidad.",
+      "feedback": "Chaqueta clásica de excelente calidad.",
+      "createdAt": "2026-09-10T16:10:00.000Z"
+    }
+  ],
+  "returns": [
+    {
+      "id": "ret_001",
+      "userId": "usr_demo_01",
+      "boxId": "box_002",
+      "productId": "prod-09",
+      "reason": "TOO_LARGE",
+      "requestedSize": "S",
+      "notes": "La pretina en talla M quedó unos 3 cm más amplia de lo esperado.",
+      "status": "COMPLETED",
+      "pickupAddress": "Calle 18 # 122-135, Pance, Cali",
+      "scheduledPickupDate": "2026-09-12",
+      "createdAt": "2026-09-11T10:00:00.000Z"
+    }
+  ]
+}

@@ -1,3 +1,6 @@
 backend/data/outbox.json
 backend/data/*.tmp.*
+backend/data/db.json
+backend/data/runtime/
+.env
 node_modules/

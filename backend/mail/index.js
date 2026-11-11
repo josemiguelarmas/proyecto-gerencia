@@ -1,10 +1,10 @@
 // Adaptador de correo. MAIL_PROVIDER=simulated (único disponible) guarda cada
-// mensaje en backend/data/outbox.json en lugar de enviarlo.
+// mensaje en DATA_DIR/outbox.json (TCB_OUTBOX_FILE) en lugar de enviarlo.
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const OUTBOX_FILE = process.env.TCB_OUTBOX_FILE || path.join(__dirname, '..', 'data', 'outbox.json');
+const OUTBOX_FILE = require('../config/env').OUTBOX_FILE;
 
 function readOutbox() {
   if (!fs.existsSync(OUTBOX_FILE)) return [];
@@ -29,6 +29,7 @@ const simulatedProvider = {
       createdAt: new Date().toISOString()
     };
     outbox.push(message);
+    fs.mkdirSync(path.dirname(OUTBOX_FILE), { recursive: true });
     fs.writeFileSync(OUTBOX_FILE, JSON.stringify(outbox, null, 2), 'utf8');
     return message;
   },

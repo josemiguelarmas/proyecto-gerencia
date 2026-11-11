@@ -7,20 +7,16 @@ const os = require('os');
 const path = require('path');
 const { createClient } = require('./http');
 
-const REPO_ROOT = path.join(__dirname, '..', '..');
-const CATALOG_SOURCE = path.join(REPO_ROOT, 'backend', 'data', 'catalog.json');
-
 let running = null;
 
 async function startServer() {
   if (running) return running;
 
+  // An empty DATA_DIR makes the backend create db.json and catalog.json from backend/data/seed/.
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tcb-node-test-'));
   process.env.NODE_ENV = 'test';
-  process.env.TCB_DB_FILE = path.join(dataDir, 'db.json');
-  process.env.TCB_OUTBOX_FILE = path.join(dataDir, 'outbox.json');
-  process.env.TCB_CATALOG_FILE = path.join(dataDir, 'catalog.json');
-  fs.copyFileSync(CATALOG_SOURCE, process.env.TCB_CATALOG_FILE);
+  process.env.DATA_DIR = dataDir;
+  ['TCB_DB_FILE', 'TCB_OUTBOX_FILE', 'TCB_CATALOG_FILE'].forEach(name => delete process.env[name]);
 
   const backend = require('../../backend/server');
   const server = await backend.startServer(0);
