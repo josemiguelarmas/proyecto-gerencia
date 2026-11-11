@@ -78,10 +78,12 @@ test('tok_flaky falla los primeros N cobros (configurable) y luego aprueba', () 
   assert.equal(payments.charge({ token: 'tok_flaky', amountCOP: 1000, idempotencyKey: idem, description: 'x' }).idempotentReplay, true);
 });
 
+// SCRUM-57: tokenize() vive en el SDK del navegador (frontend/js/simulatedGateway.js).
 test('las tarjetas de prueba de tokenize() siguen funcionando', () => {
-  const t = payments.tokenize({ number: '4000 0000 0000 0002', expMonth: 12, expYear: 2030, cvc: '123', holder: 'Prueba' });
+  const gateway = require('../frontend/js/simulatedGateway');
+  const t = gateway.tokenize({ number: '4000 0000 0000 0002', expMonth: 12, expYear: 2030, cvc: '123', holder: 'Prueba' });
   assert.equal(charge(t.token).status, 'DECLINED');
-  const ok = payments.tokenize({ number: '4242 4242 4242 4242', expMonth: 12, expYear: 2030, cvc: '123', holder: 'Prueba' });
+  const ok = gateway.tokenize({ number: '4242 4242 4242 4242', expMonth: 12, expYear: 2030, cvc: '123', holder: 'Prueba' });
   assert.equal(charge(ok.token).status, 'APPROVED');
   assert.equal(ok.last4, '4242');
   assert.doesNotMatch(ok.token, /4242424242424242/, 'el token no lleva el número completo');

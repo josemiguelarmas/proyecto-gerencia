@@ -1,10 +1,9 @@
-// Payments and invoicing routes: the signed gateway webhook and card tokenization (HU-08),
+// Payments and invoicing routes: the signed gateway webhook (HU-08; cards are tokenized in the browser),
 // the subscriber's fiscal data for electronic invoices (HU-15), and the admin views of
 // payments, gateway fees and reconciliation, invoices with their retry queue and alerts, plus
 // the on-demand recurring billing and invoice retry jobs. Card data is never stored here.
 const { db } = require('../database');
 const billing = require('../billing');
-const payments = require('../adapters/payments');
 const invoicing = require('../adapters/invoicing');
 const { sendJson, readRawBody, parseJsonBody, parseNow } = require('../lib/http');
 
@@ -13,14 +12,6 @@ async function paymentWebhook({ req, res }) {
   const rawBody = await readRawBody(req);
   const result = billing.processPaymentWebhook(rawBody, req.headers['x-signature']);
   return sendJson(res, result.status, result.body);
-}
-
-// HU-08: tokenización simulada. En una pasarela real la tarjeta va del navegador a la
-// pasarela; aquí el número y el CVV solo se validan y nunca se guardan ni se registran.
-async function tokenize({ req, res }) {
-  const { card } = await parseJsonBody(req);
-  const result = payments.tokenize(card || {});
-  return sendJson(res, 200, result);
 }
 
 // HU-15: datos fiscales del suscriptor
@@ -65,7 +56,6 @@ async function runInvoiceRetries({ req, res }) {
 
 module.exports = [
   { method: 'POST', path: '/api/webhooks/payments', public: true, handler: paymentWebhook },
-  { method: 'POST', path: '/api/payments/tokenize', handler: tokenize },
   { method: 'PUT', path: '/api/profile/fiscal', handler: saveFiscal },
   { method: 'GET', path: '/api/admin/payments', handler: paymentsReport },
   { method: 'POST', path: '/api/admin/jobs/recurring-billing', handler: runRecurringBilling },

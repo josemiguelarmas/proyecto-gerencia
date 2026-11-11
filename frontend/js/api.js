@@ -96,9 +96,6 @@ TCB.api = (() => {
     },
     policy: () => request('/api/policy'),
     config: () => request('/api/config'),
-    payments: {
-      tokenize: card => request('/api/payments/tokenize', { method: 'POST', body: { card } })
-    },
     subscription: {
       get: () => request('/api/subscription'),
       subscribe: data => request('/api/subscription/subscribe', { method: 'POST', body: data }),

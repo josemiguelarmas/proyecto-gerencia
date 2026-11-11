@@ -5,7 +5,19 @@
 const { db } = require('../database');
 const config = require('../config');
 const billing = require('../billing');
-const { sendJson, parseJsonBody } = require('../lib/http');
+const payments = require('../adapters/payments');
+const { sendJson, parseJsonBody, httpError } = require('../lib/http');
+
+// SCRUM-57: card data never reaches this server (the browser tokenizes it with the gateway).
+// A body with a card-like field is refused before anything else reads it, and it is not logged.
+async function readPaymentBody(req) {
+  const body = await parseJsonBody(req);
+  const field = payments.findCardData(body);
+  if (field) {
+    throw httpError(400, `Por seguridad no recibimos datos de tarjeta (campo "${field}"). Registra la tarjeta con la pasarela y envía solo su token.`);
+  }
+  return body;
+}
 
 // HU-08/HU-12: suscripción actual con sus pagos y facturas
 function getSubscription({ res, authUser }) {
@@ -19,7 +31,7 @@ function getSubscription({ res, authUser }) {
 }
 
 async function subscribe({ req, res, authUser }) {
-  const { plan, paymentToken, fiscal } = await parseJsonBody(req);
+  const { plan, paymentToken, fiscal } = await readPaymentBody(req);
   try {
     const result = billing.subscribe(db.findUserById(authUser.id), { plan, paymentToken, fiscal });
     return sendJson(res, 201, {
@@ -36,7 +48,7 @@ async function subscribe({ req, res, authUser }) {
 }
 
 async function updatePaymentMethod({ req, res, authUser }) {
-  const { paymentToken } = await parseJsonBody(req);
+  const { paymentToken } = await readPaymentBody(req);
   try {
     const result = billing.updatePaymentMethod(authUser.id, paymentToken);
     return sendJson(res, 200, { success: true, message: result.message, subscription: billing.publicSubscription(result.subscription), payment: result.payment });

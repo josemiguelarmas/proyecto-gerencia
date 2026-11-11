@@ -90,9 +90,11 @@ const CARD_DECLINE = '4000 0000 0000 0002';
 const CARD_FIRST_ONLY = '4000 0000 0000 0341';
 const FISCAL = { docType: 'CC', docNumber: '1144123456', address: 'Calle 5 # 38-20, San Fernando', city: 'Cali' };
 
-async function tokenizeCard(number, token) {
-  const res = await request('POST', '/api/payments/tokenize', { card: { number, expMonth: 12, expYear: 2030, cvc: '123', holder: 'Usuario Prueba' } }, token);
-  return res.body.token;
+// SCRUM-57: la tarjeta se tokeniza en el navegador con el SDK de la pasarela simulada; el
+// servidor ya no tiene POST /api/payments/tokenize. La prueba usa el mismo SDK del frontend.
+const simulatedGateway = require('../frontend/js/simulatedGateway');
+async function tokenizeCard(number) {
+  return simulatedGateway.tokenize({ number, expMonth: 12, expYear: 2030, cvc: '123', holder: 'Usuario Prueba' }).token;
 }
 
 // HU-08: desde el Sprint 2 la suscripción nace con el primer pago aprobado.
@@ -687,15 +689,19 @@ async function outboxFor(adminToken, to, type) {
 async function runPrompt3Tests({ adminToken, stylistToken }) {
   console.log('\n--- SPRINT 2 · PROMPT 3 ---');
 
-  // 43. HU-08: la tarjeta se tokeniza y nunca se guarda completa ni con CVV
+  // 43. HU-08: la tarjeta se tokeniza en el navegador y nunca llega completa ni con CVV al servidor
+  // (SCRUM-57: antes se tokenizaba con POST /api/payments/tokenize; ahora con el SDK simulado
+  // del frontend, y el servidor rechaza con 400 cualquier cuerpo con datos de tarjeta).
   const a = await newClientWithoutPlan();
-  assert.strictEqual((await request('POST', '/api/payments/tokenize', { card: { number: '4242 4242 4242 4241', expMonth: 12, expYear: 2030, cvc: '123', holder: 'X' } }, a.token)).status, 400, 'Luhn inválido');
-  assert.strictEqual((await request('POST', '/api/payments/tokenize', { card: { number: CARD_OK, expMonth: 1, expYear: 2020, cvc: '123', holder: 'X' } }, a.token)).status, 400, 'Vencida');
-  const tok = await request('POST', '/api/payments/tokenize', { card: { number: CARD_OK, expMonth: 12, expYear: 2030, cvc: '987', holder: 'Ana Prueba' } }, a.token);
-  assert.strictEqual(tok.status, 200);
+  assert.throws(() => simulatedGateway.tokenize({ number: '4242 4242 4242 4241', expMonth: 12, expYear: 2030, cvc: '123', holder: 'X' }), /no es válido/, 'Luhn inválido');
+  assert.throws(() => simulatedGateway.tokenize({ number: CARD_OK, expMonth: 1, expYear: 2020, cvc: '123', holder: 'X' }), /vencida/, 'Vencida');
+  const tok = { status: 200, body: simulatedGateway.tokenize({ number: CARD_OK, expMonth: 12, expYear: 2030, cvc: '987', holder: 'Ana Prueba' }) };
   assert.deepStrictEqual([tok.body.brand, tok.body.last4], ['Visa', '4242']);
   assert.ok(!tok.body.token.includes('4242424242424242'));
-  console.log('✓ 43. HU-08: tokenización simulada valida la tarjeta y devuelve solo token, marca y últimos 4');
+  const withCard = await request('POST', '/api/subscription/subscribe', { plan: 'esencial', paymentToken: tok.body.token, card: { number: CARD_OK, cvc: '987' }, fiscal: FISCAL }, a.token);
+  assert.strictEqual(withCard.status, 400, 'El servidor no acepta datos de tarjeta');
+  assert.strictEqual((await request('POST', '/api/payments/tokenize', { card: { number: CARD_OK } }, a.token)).status, 404, 'Ya no hay tokenización en el servidor');
+  console.log('✓ 43. HU-08: tokenización en el navegador; el servidor solo recibe token, marca y últimos 4');
 
   // 44. HU-08: suscripción Esencial aprobada con 4242, confirmación en la bandeja de salida
   const okSub = await request('POST', '/api/subscription/subscribe', { plan: 'esencial', paymentToken: tok.body.token, fiscal: FISCAL }, a.token);

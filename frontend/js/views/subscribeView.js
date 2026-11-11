@@ -13,7 +13,8 @@ TCB.views.subscribe = (() => {
     return appConfig;
   }
 
-  // Campos de tarjeta. Nunca se guardan: se tokenizan y el formulario se limpia.
+  // Campos de tarjeta. Nunca salen del navegador: la pasarela (SDK simulado) los tokeniza aquí
+  // y al backend solo llega el token. El formulario se limpia después de tokenizar.
   function cardFieldsHtml(testCards = []) {
     return `
       <div class="banner banner--info" style="font-size:var(--fs-sm)">
@@ -46,15 +47,17 @@ TCB.views.subscribe = (() => {
 
   async function tokenizeFrom(form) {
     const [expMonth, expYear] = form.elements.exp.value.split('/').map(v => v.trim());
-    const res = await TCB.api.payments.tokenize({
-      holder: form.elements.holder.value.trim(),
-      number: form.elements.number.value,
-      expMonth,
-      expYear,
-      cvc: form.elements.cvc.value.trim()
-    });
-    ['number', 'exp', 'cvc'].forEach(n => { form.elements[n].value = ''; });
-    return res;
+    try {
+      return TCB.simulatedGateway.tokenize({
+        holder: form.elements.holder.value.trim(),
+        number: form.elements.number.value,
+        expMonth,
+        expYear,
+        cvc: form.elements.cvc.value.trim()
+      });
+    } finally {
+      ['number', 'exp', 'cvc'].forEach(n => { form.elements[n].value = ''; });
+    }
   }
 
   function fiscalFieldsHtml(fiscal = {}, docTypes = {}) {

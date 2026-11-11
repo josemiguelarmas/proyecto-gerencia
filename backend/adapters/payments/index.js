@@ -1,14 +1,18 @@
 // Adaptador de pagos. PAYMENT_PROVIDER=simulated (único disponible) imita una pasarela
-// en modo de pruebas: tokeniza la tarjeta, cobra con llave de idempotencia y firma webhooks.
-// Nunca guarda el número completo ni el CVV: el token solo lleva marca, últimos 4 y el
-// comportamiento de la tarjeta de prueba. Además del token que produce tokenize(), el
-// simulado acepta los tokens fijos tok_ok (aprueba), tok_declined (rechaza) y tok_flaky
-// (falla los primeros N cobros por fallo temporal, N = PAYMENT_FLAKY_FAILURES, 2 por defecto).
+// en modo de pruebas: cobra con llave de idempotencia, guarda su propio registro de cobros
+// (retrieveCharge, para la conciliación) y firma webhooks con HMAC e id de evento.
+// La tarjeta se tokeniza en el navegador (frontend/js/simulatedGateway.js), así que este
+// servidor nunca recibe el número ni el CVV; findCardData() detecta si un cuerpo los trae.
+// El simulado acepta los tokens del SDK y los fijos tok_ok (aprueba), tok_declined (rechaza)
+// y tok_flaky (falla los primeros N cobros por fallo temporal, N = PAYMENT_FLAKY_FAILURES, 2 por defecto).
 const crypto = require('crypto');
 const config = require('../../config');
 const { selectProvider } = require('../select');
+// The browser-side SDK of the simulated gateway: cards are tokenized there, never on this server.
+const gateway = require('../../../frontend/js/simulatedGateway');
 
-const INTERFACE = ['tokenize', 'describeToken', 'charge', 'buildWebhook', 'verifyWebhook'];
+// tokenize is not part of the server interface: a real gateway tokenizes in the browser.
+const INTERFACE = ['describeToken', 'charge', 'retrieveCharge', 'buildWebhook', 'verifyWebhook'];
 
 // Tokens fijos para pruebas y demos: comportamiento, marca y últimos 4 que se muestran.
 const FIXED_TOKENS = {
@@ -30,36 +34,8 @@ function behaviorOf(token) {
   return match ? match[1] : null;
 }
 
-// Tarjetas de prueba. Cualquier otra tarjeta válida (Luhn) se aprueba.
-const TEST_CARDS = {
-  '4242424242424242': { behavior: 'ok', label: 'Aprueba siempre' },
-  '4000000000000002': { behavior: 'decline', label: 'Rechaza: fondos insuficientes' },
-  '4000000000000341': { behavior: 'firstonly', label: 'Aprueba el primer cobro y falla los recurrentes' }
-};
 const DECLINE_REASON = 'Fondos insuficientes';
 const RECURRING_DECLINE_REASON = 'La tarjeta fue rechazada por el banco emisor';
-
-function luhnValid(number) {
-  let sum = 0;
-  let double = false;
-  for (let i = number.length - 1; i >= 0; i--) {
-    let d = Number(number[i]);
-    if (double) {
-      d *= 2;
-      if (d > 9) d -= 9;
-    }
-    sum += d;
-    double = !double;
-  }
-  return sum % 10 === 0;
-}
-
-function cardBrand(number) {
-  if (/^4/.test(number)) return 'Visa';
-  if (/^(5[1-5]|2[2-7])/.test(number)) return 'Mastercard';
-  if (/^3[47]/.test(number)) return 'Amex';
-  return 'Tarjeta';
-}
 
 function paymentError(message) {
   const err = new Error(message);
@@ -71,38 +47,37 @@ function sign(rawBody) {
   return crypto.createHmac('sha256', config.PAYMENT_WEBHOOK_SECRET).update(rawBody).digest('hex');
 }
 
-// Cobros ya procesados por llave de idempotencia (la pasarela real los guarda de su lado).
+// Cobros ya procesados por llave de idempotencia y registro de todos los cobros por id
+// (la pasarela real los guarda de su lado y los entrega en su API de consulta).
 const chargesByKey = new Map();
+const chargesById = new Map();
+
+// Keys that only card data uses, and values that look like a card number (13 to 19 digits,
+// spaces or dashes allowed). docNumber (fiscal ID, up to 15 digits) is not card data.
+const CARD_KEYS = /^(card_?number|cardnum|pan|number|cvv2?|cvc2?|csc|security_?code|exp_?(month|year)|expiry)$/i;
+const CARD_VALUE = /^\d(?:[ -]?\d){12,18}$/;
+const NOT_CARD_KEYS = new Set(['docNumber']);
+
+// Returns the path of the first card-like field in a parsed body, or null.
+function findCardData(value, pathSoFar = '') {
+  if (typeof value === 'string' || typeof value === 'number') {
+    return CARD_VALUE.test(String(value).trim()) ? pathSoFar || '(body)' : null;
+  }
+  if (!value || typeof value !== 'object') return null;
+  for (const [key, child] of Object.entries(value)) {
+    const here = pathSoFar ? `${pathSoFar}.${key}` : key;
+    if (NOT_CARD_KEYS.has(key)) continue;
+    if (CARD_KEYS.test(key) && child !== null && child !== undefined && child !== '') return here;
+    const found = findCardData(child, here);
+    if (found) return found;
+  }
+  return null;
+}
 
 const simulatedProvider = {
   name: 'simulated',
-  testCards: Object.entries(TEST_CARDS).map(([number, c]) => ({ number: number.replace(/(\d{4})(?=\d)/g, '$1 '), label: c.label })),
-
-  tokenize({ number, expMonth, expYear, cvc, holder } = {}) {
-    const digits = String(number || '').replace(/[\s-]/g, '');
-    if (!/^\d{13,19}$/.test(digits) || !luhnValid(digits)) throw paymentError('El número de tarjeta no es válido.');
-    const month = Number(expMonth);
-    let year = Number(expYear);
-    if (year < 100) year += 2000;
-    if (!Number.isInteger(month) || month < 1 || month > 12 || !Number.isInteger(year)) {
-      throw paymentError('La fecha de vencimiento no es válida.');
-    }
-    const now = new Date();
-    if (year < now.getFullYear() || (year === now.getFullYear() && month < now.getMonth() + 1)) {
-      throw paymentError('La tarjeta está vencida.');
-    }
-    if (!/^\d{3,4}$/.test(String(cvc || ''))) throw paymentError('El código de seguridad (CVV) no es válido.');
-    if (!holder || !String(holder).trim()) throw paymentError('Escribe el nombre que aparece en la tarjeta.');
-
-    const behavior = (TEST_CARDS[digits] || { behavior: 'ok' }).behavior;
-    const brand = cardBrand(digits);
-    return {
-      token: `tok_sim_${behavior}_${brand.toLowerCase()}_${digits.slice(-4)}_${crypto.randomBytes(8).toString('hex')}`,
-      brand,
-      last4: digits.slice(-4),
-      provider: 'simulated'
-    };
-  },
+  // Test cards the browser SDK (frontend/js/simulatedGateway.js) knows; shown by GET /api/config.
+  testCards: gateway.testCards,
 
   // Marca y últimos 4 de un token, como la consulta de un medio de pago en la pasarela.
   describeToken(token) {
@@ -148,12 +123,21 @@ const simulatedProvider = {
     // Un fallo temporal (tok_flaky) no queda guardado: reintentar con la misma llave vuelve a cobrar,
     // como en una pasarela real cuando la respuesta fue un error de disponibilidad.
     if (reason !== FLAKY_REASON) chargesByKey.set(idempotencyKey, result);
+    chargesById.set(result.chargeId, result);
     return result;
   },
 
+  // Consulta de un cobro en la pasarela (la usa el job de conciliación). null si no existe.
+  retrieveCharge(chargeId) {
+    const charge = chargesById.get(chargeId);
+    return charge ? { chargeId: charge.chargeId, status: charge.status, amountCOP: charge.amountCOP, feeCOP: charge.feeCOP } : null;
+  },
+
   // Evento que la pasarela enviaría a POST /api/webhooks/payments, con su firma HMAC.
-  buildWebhook(charge) {
+  // Cada evento lleva un id único; la pasarela real reenvía el mismo id si no recibe un 2xx.
+  buildWebhook(charge, { eventId = `evt_sim_${crypto.randomBytes(8).toString('hex')}` } = {}) {
     const rawBody = JSON.stringify({
+      id: eventId,
       type: charge.status === 'APPROVED' ? 'charge.succeeded' : 'charge.failed',
       data: { chargeId: charge.chargeId, status: charge.status, amountCOP: charge.amountCOP, feeCOP: charge.feeCOP }
     });
@@ -173,9 +157,10 @@ const simulatedProvider = {
   resetFake() {
     flakyFailuresLeft = flakyDefault();
     chargesByKey.clear();
+    chargesById.clear();
   }
 };
 
 const PROVIDERS = { simulated: simulatedProvider };
 
-module.exports = Object.assign(selectProvider({ variable: 'PAYMENT_PROVIDER', providers: PROVIDERS, methods: INTERFACE }), { INTERFACE });
+module.exports = Object.assign(selectProvider({ variable: 'PAYMENT_PROVIDER', providers: PROVIDERS, methods: INTERFACE }), { INTERFACE, findCardData });

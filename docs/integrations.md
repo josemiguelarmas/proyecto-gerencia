@@ -13,16 +13,22 @@ Cada adaptador exporta `INTERFACE` (los métodos que todo proveedor debe impleme
 
 ## Pagos
 
-Interfaz actual: `tokenize(card)`, `describeToken(token)`, `charge({ token, amountCOP, idempotencyKey, description, recurring })`, `buildWebhook(charge)`, `verifyWebhook(rawBody, signature)`.
+Interfaz del servidor: `describeToken(token)`, `charge({ token, amountCOP, idempotencyKey, description, recurring })`, `retrieveCharge(chargeId)` (consulta usada por el job de conciliación), `buildWebhook(charge, { eventId })` y `verifyWebhook(rawBody, signature)`. El adaptador exporta además `findCardData(body)`, que las rutas de suscripción usan para rechazar con 400 cualquier cuerpo con campos de tarjeta (`cardNumber`, `number`, `cvv`, `cvc`, ... o un valor de 13 a 19 dígitos; `docNumber` se excluye porque es el documento fiscal).
 
-Proveedor simulado: además de los tokens de `tokenize()` (tarjetas 4242, 0002 y 0341), acepta `tok_ok` (aprueba), `tok_declined` (rechaza) y `tok_flaky` (falla los primeros N cobros con un error temporal que no queda en la caché de idempotencia; N = `PAYMENT_FLAKY_FAILURES`, 2 por defecto). Solo para pruebas: `setFlakyFailures(n)` y `resetFake()`.
+Tokenización: ocurre en el navegador. `frontend/js/simulatedGateway.js` hace el papel del SDK que sirve la pasarela: valida la tarjeta (Luhn, vencimiento, CVV) y devuelve `{ token, brand, last4 }`. Al backend solo llega el token; la suscripción guarda token, marca y últimos 4. Las pruebas usan el mismo archivo.
 
-Para un proveedor real hace falta:
-- Cuenta de comercio en una pasarela que opere en Colombia y soporte cobros recurrentes con token.
-- Llaves pública y privada de sandbox y de producción (variables nuevas, por definir con el proveedor).
-- Tokenización en el navegador con el SDK o formulario alojado del proveedor, para que el número de tarjeta y el CVV nunca lleguen al servidor (hoy el servidor simulado los recibe y los descarta).
-- URL del webhook registrada en el proveedor y su secreto en `PAYMENT_WEBHOOK_SECRET`.
-- Confirmar el manejo de idempotencia y de reintentos del proveedor frente a los reintentos propios (días 1, 3 y 5).
+Proveedor simulado: acepta los tokens del SDK (tarjetas 4242 aprueba, 0002 rechaza, 0341 aprueba el primer cobro y falla los recurrentes), `tok_ok` (aprueba), `tok_declined` (rechaza) y `tok_flaky` (falla los primeros N cobros con un error temporal que no queda en la caché de idempotencia; N = `PAYMENT_FLAKY_FAILURES`, 2 por defecto). Su webhook se entrega en el acto por la misma verificación HMAC del endpoint. Solo para pruebas: `setFlakyFailures(n)` y `resetFake()`.
+
+Webhook: `POST /api/webhooks/payments`, firma HMAC-SHA256 del cuerpo crudo en la cabecera `X-Signature` (hex), comparada con `crypto.timingSafeEqual`. Cada evento trae `id`; un id ya procesado responde 200 con `duplicate: true` y no se vuelve a aplicar. El cuerpo del webhook no se registra en el log. `PAYMENT_WEBHOOK_SECRET` es obligatorio cuando `PAYMENT_PROVIDER` no es `simulated` (el servidor no arranca sin él); con el simulado se usa un secreto de desarrollo si falta.
+
+Pasos para conectar una pasarela real (los nombres concretos de endpoints, llaves y formatos los entrega la pasarela elegida; no se inventan aquí):
+1. Elegir una pasarela que opere en Colombia, liquide en COP y permita cobros recurrentes sobre un token guardado (cobro sin el titular presente). Confirmar su comisión real frente al 3,5 % configurado (`PAYMENT_FEE_RATE`).
+2. Firmar el contrato de comercio y obtener las llaves de sandbox (pública para el navegador, privada para el servidor) y, al pasar a producción, las de producción. Guardarlas solo en variables de entorno (nombres por definir), nunca en el repositorio.
+3. Reemplazar `frontend/js/simulatedGateway.js` por el SDK o formulario alojado de la pasarela, cargado desde su dominio, con la llave pública. Así el número y el CVV nunca tocan este servidor ni su log, y el alcance PCI DSS se reduce al cuestionario de autoevaluación que corresponda (confirmarlo con la pasarela).
+4. Implementar un proveedor nuevo en `backend/adapters/payments/` con los métodos de `INTERFACE`, registrarlo en `PROVIDERS` y seleccionarlo con `PAYMENT_PROVIDER`. `describeToken` consulta la marca y los últimos 4 del medio de pago en la API de la pasarela; `charge` envía la llave de idempotencia que la pasarela soporte; `retrieveCharge` consulta el estado de un cobro.
+5. Registrar la URL pública de `POST /api/webhooks/payments` en el panel de la pasarela, copiar su secreto de firma en `PAYMENT_WEBHOOK_SECRET` y ajustar `verifyWebhook` al esquema de firma que la pasarela documente (cabecera, algoritmo, sello de tiempo).
+6. Revisar que los reintentos propios (días `PAYMENT_RETRY_DAYS`, por defecto 1, 3 y 5) no se crucen con reintentos automáticos de la pasarela; desactivar uno de los dos.
+7. Probar en sandbox los escenarios de `tests/billing.test.js` (aprobado, rechazado, fallo recurrente con reintentos y PAST_DUE, webhook duplicado, firma inválida) antes de activar producción.
 
 ## Facturación electrónica DIAN
 
