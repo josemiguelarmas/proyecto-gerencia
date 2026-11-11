@@ -165,3 +165,98 @@ test('el servidor de prueba entra con las cuentas sembradas por el helper', asyn
     assert.equal(me.body.user.role, role);
   }
 });
+
+// ---------- CORS, body size, headers ----------
+
+test('CORS: un origen no permitido no recibe Access-Control-Allow-Origin y nunca hay comodín', async () => {
+  const evil = await app.request('GET', '/api/products', null, null, { Origin: 'http://evil.example' });
+  assert.equal(evil.status, 200);
+  assert.equal(evil.headers['access-control-allow-origin'], undefined);
+
+  const preflight = await app.request('OPTIONS', '/api/auth/login', null, null, { Origin: 'http://evil.example', 'Access-Control-Request-Method': 'POST' });
+  assert.equal(preflight.headers['access-control-allow-origin'], undefined);
+
+  const allowed = await app.request('GET', '/api/products', null, null, { Origin: 'http://localhost:3000' });
+  assert.equal(allowed.headers['access-control-allow-origin'], 'http://localhost:3000');
+  const sameOrigin = await app.request('GET', '/api/config', null, null, { Origin: app.baseUrl });
+  assert.equal(sameOrigin.headers['access-control-allow-origin'], app.baseUrl);
+  assert.notEqual(allowed.headers['access-control-allow-origin'], '*');
+});
+
+test('un cuerpo de más de 100 KB recibe 413 con mensaje en español', async () => {
+  const big = { email: 'x@example.test', password: 'a'.repeat(150 * 1024) };
+  const res = await app.post('/api/auth/login', big);
+  assert.equal(res.status, 413);
+  assert.match(res.body.error, /demasiado grande/);
+  assert.equal((await app.get('/api/config')).status, 200, 'el servidor sigue atendiendo');
+});
+
+test('la importación CSV acepta hasta 2 MB y rechaza más con 413', async () => {
+  const admin = await app.loginAs('ADMIN');
+  const header = 'sku,name\n';
+  const medium = await app.post('/api/admin/products/import', { csv: header + 'x'.repeat(500 * 1024) }, admin);
+  assert.notEqual(medium.status, 413, 'medio mega pasa el límite de la importación');
+  const huge = await app.post('/api/admin/products/import', { csv: header + 'x'.repeat(2.5 * 1024 * 1024) }, admin);
+  assert.equal(huge.status, 413);
+});
+
+test('las cabeceras de seguridad están en la API y en la SPA', async () => {
+  for (const res of [await app.get('/api/config'), await app.get('/')]) {
+    assert.equal(res.headers['x-content-type-options'], 'nosniff');
+    assert.equal(res.headers['x-frame-options'], 'DENY');
+    assert.ok(res.headers['referrer-policy']);
+    const csp = res.headers['content-security-policy'];
+    assert.match(csp, /default-src 'self'/);
+    assert.match(csp, /script-src 'self'(;|$)/, 'sin scripts en línea');
+    assert.match(csp, /frame-ancestors 'none'/);
+  }
+});
+
+test('la SPA no usa manejadores de eventos en línea que la CSP bloquearía', () => {
+  const dir = path.join(__dirname, '..', 'frontend');
+  const files = [];
+  (function walk(d) {
+    fs.readdirSync(d, { withFileTypes: true }).forEach(e => {
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (/\.(js|html)$/.test(e.name)) files.push(full);
+    });
+  })(dir);
+  files.forEach(file => {
+    const text = fs.readFileSync(file, 'utf8');
+    assert.doesNotMatch(text, /\son(error|click|load|submit|change|input)\s*=\s*["']/, file);
+    if (file.endsWith('.html')) assert.doesNotMatch(text, /<script>(?!<\/script>)/, `${file}: script en línea`);
+  });
+});
+
+// ---------- Login rate limit ----------
+
+test('el 6.º intento fallido en 15 minutos da 429 y el bloqueo se levanta pasado ese tiempo', async () => {
+  const c = await newClient();
+  clock.set(Date.now());
+  try {
+    for (let i = 1; i <= 5; i++) {
+      const res = await app.post('/api/auth/login', { email: c.email, password: `mala-${i}` });
+      assert.equal(res.status, 401, `intento ${i}`);
+    }
+    const blocked = await app.post('/api/auth/login', { email: c.email, password: 'clave-segura-1' });
+    assert.equal(blocked.status, 429, 'bloqueado aunque ahora la clave sea correcta');
+    assert.match(blocked.body.error, /Demasiados intentos/);
+
+    const other = await newClient();
+    assert.equal((await app.post('/api/auth/login', { email: other.email, password: 'clave-segura-1' })).status, 200, 'otro correo no se bloquea');
+
+    clock.advance(15 * 60 * 1000 + 1000);
+    const after15 = await app.post('/api/auth/login', { email: c.email, password: 'clave-segura-1' });
+    assert.equal(after15.status, 200);
+  } finally {
+    clock.reset();
+  }
+});
+
+test('un inicio de sesión correcto limpia el contador de fallos', async () => {
+  const c = await newClient();
+  for (let i = 0; i < 4; i++) await app.post('/api/auth/login', { email: c.email, password: 'mala' });
+  assert.equal((await app.post('/api/auth/login', { email: c.email, password: 'clave-segura-1' })).status, 200);
+  for (let i = 0; i < 4; i++) assert.equal((await app.post('/api/auth/login', { email: c.email, password: 'mala' })).status, 401);
+});

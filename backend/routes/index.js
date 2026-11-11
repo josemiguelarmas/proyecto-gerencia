@@ -5,7 +5,7 @@
 // handler with { req, res, authUser, match }. Unknown endpoints and thrown errors get the
 // same JSON answers the original single-file router produced.
 const { authenticateRequest } = require('../auth');
-const { sendJson, sendPreflight } = require('../lib/http');
+const { sendJson, sendPreflight, applyCors } = require('../lib/http');
 
 const routes = [
   require('./config'),
@@ -54,6 +54,7 @@ function matchRoute(table, method, pathname) {
 }
 
 async function handleApiRequest(req, res, pathname) {
+  applyCors(req, res);
   if (req.method === 'OPTIONS') return sendPreflight(res);
 
   try {

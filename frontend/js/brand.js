@@ -52,6 +52,16 @@ TCB.brand = (() => {
   // ----------------------------------------------------
   const DEFAULT_PHOTO = 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=800&q=80';
 
+  // Foto de respaldo cuando una imagen no carga. Es un listener delegado (no un onerror en
+  // línea) porque la política de seguridad de contenido (CSP) bloquea los scripts en línea.
+  document.addEventListener('error', e => {
+    const img = e.target;
+    if (img && img.tagName === 'IMG' && img.dataset.fallbackSrc && img.src !== img.dataset.fallbackSrc) {
+      img.src = img.dataset.fallbackSrc;
+      delete img.dataset.fallbackSrc;
+    }
+  }, true);
+
   function garmentPhoto(product, opts = {}) {
     if (!product) return '';
     const imgUrl = product.imageUrl || product.image || DEFAULT_PHOTO;
@@ -68,7 +78,7 @@ TCB.brand = (() => {
           class="garment-img" 
           loading="lazy" 
           style="width:100%;height:100%;object-fit:cover;display:block;transition:transform var(--t-med)"
-          onerror="this.onerror=null;this.src='${DEFAULT_PHOTO}'"
+          data-fallback-src="${DEFAULT_PHOTO}"
         />
         ${opts.showBrand && brand ? `
           <span class="garment-photo-brand" style="position:absolute;top:10px;left:10px;background:rgba(22,21,24,0.85);color:#fff;font-family:var(--font-mono);font-size:10px;padding:3px 8px;border-radius:2px;letter-spacing:0.05em;text-transform:uppercase">

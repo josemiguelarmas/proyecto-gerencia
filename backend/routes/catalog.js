@@ -3,7 +3,7 @@
 // normalization live in backend/catalog.js; persistence goes through the database facade.
 const { db } = require('../database');
 const { importCatalogCsv } = require('../catalog');
-const { sendJson, parseJsonBody } = require('../lib/http');
+const { sendJson, parseJsonBody, CSV_IMPORT_MAX_BYTES } = require('../lib/http');
 
 function listPublicProducts({ res }) {
   return sendJson(res, 200, db.catalog);
@@ -24,7 +24,7 @@ async function saveProduct({ req, res }) {
 
 // HU-05: importación de catálogo por CSV (body JSON { csv })
 async function importProducts({ req, res }) {
-  const { csv } = await parseJsonBody(req);
+  const { csv } = await parseJsonBody(req, { limit: CSV_IMPORT_MAX_BYTES });
   if (typeof csv !== 'string' || !csv.trim()) {
     return sendJson(res, 400, { error: 'Adjunta un archivo CSV con contenido.' });
   }

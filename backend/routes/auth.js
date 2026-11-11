@@ -7,6 +7,7 @@ const config = require('../config');
 const mail = require('../mail');
 const { sendJson, parseJsonBody } = require('../lib/http');
 const { publicUser, sendVerificationEmail } = require('../lib/accounts');
+const rateLimit = require('../lib/rateLimit');
 
 // Edad cumplida a partir de una fecha YYYY-MM-DD. Devuelve null si la fecha no es válida.
 function ageFromBirthDate(birthDate, now = new Date()) {
@@ -103,10 +104,22 @@ async function login({ req, res }) {
   if (!email || !password) {
     return sendJson(res, 400, { error: 'Correo y contraseña requeridos.' });
   }
+  // F5: 5 intentos fallidos en 15 minutos por correo e IP bloquean el inicio de sesión.
+  const ip = req.socket.remoteAddress;
+  const waitSec = rateLimit.loginBlockedFor(email, ip);
+  if (waitSec !== null) {
+    return sendJson(res, 429, {
+      error: `Demasiados intentos fallidos. Espera ${Math.ceil(waitSec / 60)} minutos antes de volver a intentarlo o recupera tu contraseña.`,
+      code: 'TOO_MANY_ATTEMPTS',
+      retryAfterSec: waitSec
+    });
+  }
   const user = db.findUserByEmail(email);
   if (!user || !verifyPassword(password, user.passwordHash)) {
+    rateLimit.recordLoginFailure(email, ip);
     return sendJson(res, 401, { error: 'Credenciales inválidas. Verifica tu correo y contraseña.' });
   }
+  rateLimit.clearLoginFailures(email, ip);
   const token = issueToken(user);
   const profile = db.getProfile(user.id);
   return sendJson(res, 200, {
