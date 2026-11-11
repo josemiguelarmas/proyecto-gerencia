@@ -10,3 +10,4 @@ F8 | DONE | c1e4650 | tests/domain.test.js
 F9 | DONE | 680a173 | .github/workflows/ci.yml (runs npm test)
 F10 | DONE | fe4044b | n/a (docs)
 F4 | DONE | e03bdda | full suite (no behavior change)
+F5 | DONE | 94123d8 | tests/security.test.js (commits 2d6230e, ec40ab0, f4a5bab, 3532efa, 94123d8)

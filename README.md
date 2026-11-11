@@ -75,7 +75,7 @@ prototipo-web/
 │   ├── server.js          # Servidor HTTP nativo Node.js (API REST y estáticos)
 │   ├── routes/            # Rutas por dominio (auth, catalog, boxes, admin...) y enrutador en index.js
 │   ├── lib/               # Utilidades compartidas (http, accounts, boxes, clock)
-│   ├── auth.js            # Autenticación JWT y validación de roles (CLIENT/ADMIN)
+│   ├── auth.js            # JWT (HS256, iss/aud, revocación) y requireRole (CLIENT/STYLIST/ADMIN/WAREHOUSE)
 │   ├── database.js        # Fachada de la base de datos JSON (API histórica db)
 │   ├── repos/             # Repositorios por colección sobre store.js (escritura atómica)
 │   ├── engine.js          # Motor algorítmico de tallaje antropométrico
@@ -123,6 +123,15 @@ El servidor no arranca sin `JWT_SECRET` y `DATA_ENCRYPTION_KEY` (ver sección 7)
 ```powershell
 $env:JWT_SECRET = "pon-aqui-un-secreto-largo-y-aleatorio"
 $env:DATA_ENCRYPTION_KEY = "pon-aqui-otra-clave-larga-y-aleatoria"
+# Opcional: cuentas internas (se crean al arrancar solo si el correo no existe).
+# La contraseña debe tener 8 caracteres o más, con letras y números.
+$env:ADMIN_EMAIL = "admin@tu-dominio.co"
+$env:ADMIN_PASSWORD = "elige-una-clave-1"
+$env:STYLIST_EMAIL = "estilista@tu-dominio.co"
+$env:STYLIST_PASSWORD = "elige-otra-clave-2"
+$env:WAREHOUSE_EMAIL = "bodega@tu-dominio.co"
+$env:WAREHOUSE_PASSWORD = "elige-otra-clave-3"
+$env:DEMO_CLIENT_PASSWORD = "clave-del-demo-4"   # para entrar como demo@theclothesbox.co
 npm start
 ```
 Abre en tu navegador:
@@ -227,8 +236,12 @@ Remove-Item Env:DATA_DIR
 | `NODE_ENV` | `development` | Con `test` no se exigen los secretos. |
 | `PORT` | `3000` | Puerto del servidor. |
 | `DATA_DIR` | `backend/data/runtime` | Carpeta de datos de ejecución. |
-| `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `STYLIST_EMAIL`, `STYLIST_PASSWORD` | sin definir | Cuentas internas; se siembran desde aquí en Fase 1b. |
-| `CORS_ORIGINS` | sin definir | Orígenes permitidos, separados por coma (Fase 1b). |
+| `JWT_TTL_HOURS` | `8` | Vida del token de sesión en horas. Cerrar sesión o restablecer la contraseña revoca los tokens anteriores. |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD` | sin definir | Cuenta ADMIN. Se crea al arrancar solo si el correo no existe (ver sección 3). |
+| `STYLIST_EMAIL`, `STYLIST_PASSWORD` | sin definir | Cuenta STYLIST, misma regla. |
+| `WAREHOUSE_EMAIL`, `WAREHOUSE_PASSWORD` | sin definir | Cuenta WAREHOUSE (bodega: rutas de despacho), misma regla. |
+| `DEMO_CLIENT_PASSWORD` | sin definir | Contraseña del cliente demo de la semilla; sin ella esa cuenta no puede entrar. |
+| `CORS_ORIGINS` | `http://localhost:PORT` | Orígenes permitidos, separados por coma. La propia página siempre puede llamar a la API; no hay `*`. |
 | `POLICY_VERSION` | `v1.0` | Versión vigente de la política de datos. |
 | `APP_BASE_URL` | `http://localhost:3000` | Enlaces dentro de los correos. |
 | `MAIL_PROVIDER` | `simulated` | Proveedor de correo. |
