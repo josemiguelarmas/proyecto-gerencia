@@ -17,3 +17,4 @@ SCRUM-57 | DONE | 5dd0ade | tests/billing.test.js (+ tests/api.test.js test 43)
 SCRUM-58 | DONE | 3bfd9f0 | tests/billing.test.js
 SCRUM-59 | DONE | c1bdda3 | tests/billing.test.js (+ tests/jobs.test.js reconciliation)
 SCRUM-62 | DONE | d6c92b3 | tests/billing.test.js
+SCRUM-83 | DONE | 5a5952a | tests/subscription.test.js
