@@ -2,7 +2,7 @@
 // which normalizes its variants and stock before saving the catalog. Bulk CSV import lives in
 // backend/catalog.js and writes through store.saveCatalog().
 const store = require('./store');
-const { normalizeProduct } = require('../catalog');
+const { normalizeProduct, listBrands: brandsOf } = require('../catalog');
 
 function getProductById(id) {
   return store.catalog.find(p => p.id === id) || null;
@@ -22,4 +22,8 @@ function saveProduct(productData) {
   return p;
 }
 
-module.exports = { getProductById, saveProduct };
+function listBrands() {
+  return brandsOf(store.catalog);
+}
+
+module.exports = { getProductById, saveProduct, listBrands };

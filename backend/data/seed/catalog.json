@@ -46,32 +46,56 @@
       {
         "size": "XS",
         "color": "Ladrillo lavado",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-01-XS-LADRILLO-LAVADO",
+        "reserved": 0,
+        "wholesalePrice": 23970,
+        "retailPrice": 79900
       },
       {
         "size": "S",
         "color": "Ladrillo lavado",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-01-S-LADRILLO-LAVADO",
+        "reserved": 0,
+        "wholesalePrice": 23970,
+        "retailPrice": 79900
       },
       {
         "size": "M",
         "color": "Ladrillo lavado",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-01-M-LADRILLO-LAVADO",
+        "reserved": 0,
+        "wholesalePrice": 23970,
+        "retailPrice": 79900
       },
       {
         "size": "L",
         "color": "Ladrillo lavado",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-01-L-LADRILLO-LAVADO",
+        "reserved": 0,
+        "wholesalePrice": 23970,
+        "retailPrice": 79900
       },
       {
         "size": "XL",
         "color": "Ladrillo lavado",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-01-XL-LADRILLO-LAVADO",
+        "reserved": 0,
+        "wholesalePrice": 23970,
+        "retailPrice": 79900
       },
       {
         "size": "XXL",
         "color": "Ladrillo lavado",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-01-XXL-LADRILLO-LAVADO",
+        "reserved": 0,
+        "wholesalePrice": 23970,
+        "retailPrice": 79900
       }
     ],
     "wholesalePriceCOP": 23970,
@@ -125,32 +149,56 @@
       {
         "size": "XS",
         "color": "Arena natural",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-02-XS-ARENA-NATURAL",
+        "reserved": 0,
+        "wholesalePrice": 35700,
+        "retailPrice": 119000
       },
       {
         "size": "S",
         "color": "Arena natural",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-02-S-ARENA-NATURAL",
+        "reserved": 0,
+        "wholesalePrice": 35700,
+        "retailPrice": 119000
       },
       {
         "size": "M",
         "color": "Arena natural",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-02-M-ARENA-NATURAL",
+        "reserved": 0,
+        "wholesalePrice": 35700,
+        "retailPrice": 119000
       },
       {
         "size": "L",
         "color": "Arena natural",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-02-L-ARENA-NATURAL",
+        "reserved": 0,
+        "wholesalePrice": 35700,
+        "retailPrice": 119000
       },
       {
         "size": "XL",
         "color": "Arena natural",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-02-XL-ARENA-NATURAL",
+        "reserved": 0,
+        "wholesalePrice": 35700,
+        "retailPrice": 119000
       },
       {
         "size": "XXL",
         "color": "Arena natural",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-02-XXL-ARENA-NATURAL",
+        "reserved": 0,
+        "wholesalePrice": 35700,
+        "retailPrice": 119000
       }
     ],
     "wholesalePriceCOP": 35700,
@@ -203,32 +251,56 @@
       {
         "size": "XS",
         "color": "Azul Oxford",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-03-XS-AZUL-OXFORD",
+        "reserved": 0,
+        "wholesalePrice": 33600,
+        "retailPrice": 112000
       },
       {
         "size": "S",
         "color": "Azul Oxford",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-03-S-AZUL-OXFORD",
+        "reserved": 0,
+        "wholesalePrice": 33600,
+        "retailPrice": 112000
       },
       {
         "size": "M",
         "color": "Azul Oxford",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-03-M-AZUL-OXFORD",
+        "reserved": 0,
+        "wholesalePrice": 33600,
+        "retailPrice": 112000
       },
       {
         "size": "L",
         "color": "Azul Oxford",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-03-L-AZUL-OXFORD",
+        "reserved": 0,
+        "wholesalePrice": 33600,
+        "retailPrice": 112000
       },
       {
         "size": "XL",
         "color": "Azul Oxford",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-03-XL-AZUL-OXFORD",
+        "reserved": 0,
+        "wholesalePrice": 33600,
+        "retailPrice": 112000
       },
       {
         "size": "XXL",
         "color": "Azul Oxford",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-03-XXL-AZUL-OXFORD",
+        "reserved": 0,
+        "wholesalePrice": 33600,
+        "retailPrice": 112000
       }
     ],
     "wholesalePriceCOP": 33600,
@@ -280,32 +352,56 @@
       {
         "size": "XS",
         "color": "Verde cemento",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-04-XS-VERDE-CEMENTO",
+        "reserved": 0,
+        "wholesalePrice": 37500,
+        "retailPrice": 125000
       },
       {
         "size": "S",
         "color": "Verde cemento",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-04-S-VERDE-CEMENTO",
+        "reserved": 0,
+        "wholesalePrice": 37500,
+        "retailPrice": 125000
       },
       {
         "size": "M",
         "color": "Verde cemento",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-04-M-VERDE-CEMENTO",
+        "reserved": 0,
+        "wholesalePrice": 37500,
+        "retailPrice": 125000
       },
       {
         "size": "L",
         "color": "Verde cemento",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-04-L-VERDE-CEMENTO",
+        "reserved": 0,
+        "wholesalePrice": 37500,
+        "retailPrice": 125000
       },
       {
         "size": "XL",
         "color": "Verde cemento",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-04-XL-VERDE-CEMENTO",
+        "reserved": 0,
+        "wholesalePrice": 37500,
+        "retailPrice": 125000
       },
       {
         "size": "XXL",
         "color": "Verde cemento",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-04-XXL-VERDE-CEMENTO",
+        "reserved": 0,
+        "wholesalePrice": 37500,
+        "retailPrice": 125000
       }
     ],
     "wholesalePriceCOP": 37500,
@@ -359,32 +455,56 @@
       {
         "size": "XS",
         "color": "Hueso",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-05-XS-HUESO",
+        "reserved": 0,
+        "wholesalePrice": 20970,
+        "retailPrice": 69900
       },
       {
         "size": "S",
         "color": "Hueso",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-05-S-HUESO",
+        "reserved": 0,
+        "wholesalePrice": 20970,
+        "retailPrice": 69900
       },
       {
         "size": "M",
         "color": "Hueso",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-05-M-HUESO",
+        "reserved": 0,
+        "wholesalePrice": 20970,
+        "retailPrice": 69900
       },
       {
         "size": "L",
         "color": "Hueso",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-05-L-HUESO",
+        "reserved": 0,
+        "wholesalePrice": 20970,
+        "retailPrice": 69900
       },
       {
         "size": "XL",
         "color": "Hueso",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-05-XL-HUESO",
+        "reserved": 0,
+        "wholesalePrice": 20970,
+        "retailPrice": 69900
       },
       {
         "size": "XXL",
         "color": "Hueso",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-05-XXL-HUESO",
+        "reserved": 0,
+        "wholesalePrice": 20970,
+        "retailPrice": 69900
       }
     ],
     "wholesalePriceCOP": 20970,
@@ -437,32 +557,56 @@
       {
         "size": "XS",
         "color": "Vino tinto",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-06-XS-VINO-TINTO",
+        "reserved": 0,
+        "wholesalePrice": 26700,
+        "retailPrice": 89000
       },
       {
         "size": "S",
         "color": "Vino tinto",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-06-S-VINO-TINTO",
+        "reserved": 0,
+        "wholesalePrice": 26700,
+        "retailPrice": 89000
       },
       {
         "size": "M",
         "color": "Vino tinto",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-06-M-VINO-TINTO",
+        "reserved": 0,
+        "wholesalePrice": 26700,
+        "retailPrice": 89000
       },
       {
         "size": "L",
         "color": "Vino tinto",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-06-L-VINO-TINTO",
+        "reserved": 0,
+        "wholesalePrice": 26700,
+        "retailPrice": 89000
       },
       {
         "size": "XL",
         "color": "Vino tinto",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-06-XL-VINO-TINTO",
+        "reserved": 0,
+        "wholesalePrice": 26700,
+        "retailPrice": 89000
       },
       {
         "size": "XXL",
         "color": "Vino tinto",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-06-XXL-VINO-TINTO",
+        "reserved": 0,
+        "wholesalePrice": 26700,
+        "retailPrice": 89000
       }
     ],
     "wholesalePriceCOP": 26700,
@@ -515,32 +659,56 @@
       {
         "size": "XS",
         "color": "Negro profundo",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-07-XS-NEGRO-PROFUNDO",
+        "reserved": 0,
+        "wholesalePrice": 19470,
+        "retailPrice": 64900
       },
       {
         "size": "S",
         "color": "Negro profundo",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-07-S-NEGRO-PROFUNDO",
+        "reserved": 0,
+        "wholesalePrice": 19470,
+        "retailPrice": 64900
       },
       {
         "size": "M",
         "color": "Negro profundo",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-07-M-NEGRO-PROFUNDO",
+        "reserved": 0,
+        "wholesalePrice": 19470,
+        "retailPrice": 64900
       },
       {
         "size": "L",
         "color": "Negro profundo",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-07-L-NEGRO-PROFUNDO",
+        "reserved": 0,
+        "wholesalePrice": 19470,
+        "retailPrice": 64900
       },
       {
         "size": "XL",
         "color": "Negro profundo",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-07-XL-NEGRO-PROFUNDO",
+        "reserved": 0,
+        "wholesalePrice": 19470,
+        "retailPrice": 64900
       },
       {
         "size": "XXL",
         "color": "Negro profundo",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-07-XXL-NEGRO-PROFUNDO",
+        "reserved": 0,
+        "wholesalePrice": 19470,
+        "retailPrice": 64900
       }
     ],
     "wholesalePriceCOP": 19470,
@@ -594,32 +762,56 @@
       {
         "size": "XS",
         "color": "Índigo medio vintage",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-08-XS-INDIGO-MEDIO-VINTAGE",
+        "reserved": 0,
+        "wholesalePrice": 41970,
+        "retailPrice": 139900
       },
       {
         "size": "S",
         "color": "Índigo medio vintage",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-08-S-INDIGO-MEDIO-VINTAGE",
+        "reserved": 0,
+        "wholesalePrice": 41970,
+        "retailPrice": 139900
       },
       {
         "size": "M",
         "color": "Índigo medio vintage",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-08-M-INDIGO-MEDIO-VINTAGE",
+        "reserved": 0,
+        "wholesalePrice": 41970,
+        "retailPrice": 139900
       },
       {
         "size": "L",
         "color": "Índigo medio vintage",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-08-L-INDIGO-MEDIO-VINTAGE",
+        "reserved": 0,
+        "wholesalePrice": 41970,
+        "retailPrice": 139900
       },
       {
         "size": "XL",
         "color": "Índigo medio vintage",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-08-XL-INDIGO-MEDIO-VINTAGE",
+        "reserved": 0,
+        "wholesalePrice": 41970,
+        "retailPrice": 139900
       },
       {
         "size": "XXL",
         "color": "Índigo medio vintage",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-08-XXL-INDIGO-MEDIO-VINTAGE",
+        "reserved": 0,
+        "wholesalePrice": 41970,
+        "retailPrice": 139900
       }
     ],
     "wholesalePriceCOP": 41970,
@@ -672,32 +864,56 @@
       {
         "size": "XS",
         "color": "Grafito",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-09-XS-GRAFITO",
+        "reserved": 0,
+        "wholesalePrice": 44700,
+        "retailPrice": 149000
       },
       {
         "size": "S",
         "color": "Grafito",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-09-S-GRAFITO",
+        "reserved": 0,
+        "wholesalePrice": 44700,
+        "retailPrice": 149000
       },
       {
         "size": "M",
         "color": "Grafito",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-09-M-GRAFITO",
+        "reserved": 0,
+        "wholesalePrice": 44700,
+        "retailPrice": 149000
       },
       {
         "size": "L",
         "color": "Grafito",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-09-L-GRAFITO",
+        "reserved": 0,
+        "wholesalePrice": 44700,
+        "retailPrice": 149000
       },
       {
         "size": "XL",
         "color": "Grafito",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-09-XL-GRAFITO",
+        "reserved": 0,
+        "wholesalePrice": 44700,
+        "retailPrice": 149000
       },
       {
         "size": "XXL",
         "color": "Grafito",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-09-XXL-GRAFITO",
+        "reserved": 0,
+        "wholesalePrice": 44700,
+        "retailPrice": 149000
       }
     ],
     "wholesalePriceCOP": 44700,
@@ -748,32 +964,56 @@
       {
         "size": "XS",
         "color": "Oliva militar",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-10-XS-OLIVA-MILITAR",
+        "reserved": 0,
+        "wholesalePrice": 40500,
+        "retailPrice": 135000
       },
       {
         "size": "S",
         "color": "Oliva militar",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-10-S-OLIVA-MILITAR",
+        "reserved": 0,
+        "wholesalePrice": 40500,
+        "retailPrice": 135000
       },
       {
         "size": "M",
         "color": "Oliva militar",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-10-M-OLIVA-MILITAR",
+        "reserved": 0,
+        "wholesalePrice": 40500,
+        "retailPrice": 135000
       },
       {
         "size": "L",
         "color": "Oliva militar",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-10-L-OLIVA-MILITAR",
+        "reserved": 0,
+        "wholesalePrice": 40500,
+        "retailPrice": 135000
       },
       {
         "size": "XL",
         "color": "Oliva militar",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-10-XL-OLIVA-MILITAR",
+        "reserved": 0,
+        "wholesalePrice": 40500,
+        "retailPrice": 135000
       },
       {
         "size": "XXL",
         "color": "Oliva militar",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-10-XXL-OLIVA-MILITAR",
+        "reserved": 0,
+        "wholesalePrice": 40500,
+        "retailPrice": 135000
       }
     ],
     "wholesalePriceCOP": 40500,
@@ -825,32 +1065,56 @@
       {
         "size": "XS",
         "color": "Carbón mate",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-11-XS-CARBON-MATE",
+        "reserved": 0,
+        "wholesalePrice": 34500,
+        "retailPrice": 115000
       },
       {
         "size": "S",
         "color": "Carbón mate",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-11-S-CARBON-MATE",
+        "reserved": 0,
+        "wholesalePrice": 34500,
+        "retailPrice": 115000
       },
       {
         "size": "M",
         "color": "Carbón mate",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-11-M-CARBON-MATE",
+        "reserved": 0,
+        "wholesalePrice": 34500,
+        "retailPrice": 115000
       },
       {
         "size": "L",
         "color": "Carbón mate",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-11-L-CARBON-MATE",
+        "reserved": 0,
+        "wholesalePrice": 34500,
+        "retailPrice": 115000
       },
       {
         "size": "XL",
         "color": "Carbón mate",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-11-XL-CARBON-MATE",
+        "reserved": 0,
+        "wholesalePrice": 34500,
+        "retailPrice": 115000
       },
       {
         "size": "XXL",
         "color": "Carbón mate",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-11-XXL-CARBON-MATE",
+        "reserved": 0,
+        "wholesalePrice": 34500,
+        "retailPrice": 115000
       }
     ],
     "wholesalePriceCOP": 34500,
@@ -903,32 +1167,56 @@
       {
         "size": "XS",
         "color": "Índigo crudo",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-12-XS-INDIGO-CRUDO",
+        "reserved": 0,
+        "wholesalePrice": 42600,
+        "retailPrice": 142000
       },
       {
         "size": "S",
         "color": "Índigo crudo",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-12-S-INDIGO-CRUDO",
+        "reserved": 0,
+        "wholesalePrice": 42600,
+        "retailPrice": 142000
       },
       {
         "size": "M",
         "color": "Índigo crudo",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-12-M-INDIGO-CRUDO",
+        "reserved": 0,
+        "wholesalePrice": 42600,
+        "retailPrice": 142000
       },
       {
         "size": "L",
         "color": "Índigo crudo",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-12-L-INDIGO-CRUDO",
+        "reserved": 0,
+        "wholesalePrice": 42600,
+        "retailPrice": 142000
       },
       {
         "size": "XL",
         "color": "Índigo crudo",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-12-XL-INDIGO-CRUDO",
+        "reserved": 0,
+        "wholesalePrice": 42600,
+        "retailPrice": 142000
       },
       {
         "size": "XXL",
         "color": "Índigo crudo",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-12-XXL-INDIGO-CRUDO",
+        "reserved": 0,
+        "wholesalePrice": 42600,
+        "retailPrice": 142000
       }
     ],
     "wholesalePriceCOP": 42600,
@@ -982,32 +1270,56 @@
       {
         "size": "XS",
         "color": "Terracota cálido",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-13-XS-TERRACOTA-CALIDO",
+        "reserved": 0,
+        "wholesalePrice": 50700,
+        "retailPrice": 169000
       },
       {
         "size": "S",
         "color": "Terracota cálido",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-13-S-TERRACOTA-CALIDO",
+        "reserved": 0,
+        "wholesalePrice": 50700,
+        "retailPrice": 169000
       },
       {
         "size": "M",
         "color": "Terracota cálido",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-13-M-TERRACOTA-CALIDO",
+        "reserved": 0,
+        "wholesalePrice": 50700,
+        "retailPrice": 169000
       },
       {
         "size": "L",
         "color": "Terracota cálido",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-13-L-TERRACOTA-CALIDO",
+        "reserved": 0,
+        "wholesalePrice": 50700,
+        "retailPrice": 169000
       },
       {
         "size": "XL",
         "color": "Terracota cálido",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-13-XL-TERRACOTA-CALIDO",
+        "reserved": 0,
+        "wholesalePrice": 50700,
+        "retailPrice": 169000
       },
       {
         "size": "XXL",
         "color": "Terracota cálido",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-13-XXL-TERRACOTA-CALIDO",
+        "reserved": 0,
+        "wholesalePrice": 50700,
+        "retailPrice": 169000
       }
     ],
     "wholesalePriceCOP": 50700,
@@ -1060,32 +1372,56 @@
       {
         "size": "XS",
         "color": "Azul noche",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-14-XS-AZUL-NOCHE",
+        "reserved": 0,
+        "wholesalePrice": 55500,
+        "retailPrice": 185000
       },
       {
         "size": "S",
         "color": "Azul noche",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-14-S-AZUL-NOCHE",
+        "reserved": 0,
+        "wholesalePrice": 55500,
+        "retailPrice": 185000
       },
       {
         "size": "M",
         "color": "Azul noche",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-14-M-AZUL-NOCHE",
+        "reserved": 0,
+        "wholesalePrice": 55500,
+        "retailPrice": 185000
       },
       {
         "size": "L",
         "color": "Azul noche",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-14-L-AZUL-NOCHE",
+        "reserved": 0,
+        "wholesalePrice": 55500,
+        "retailPrice": 185000
       },
       {
         "size": "XL",
         "color": "Azul noche",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-14-XL-AZUL-NOCHE",
+        "reserved": 0,
+        "wholesalePrice": 55500,
+        "retailPrice": 185000
       },
       {
         "size": "XXL",
         "color": "Azul noche",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-14-XXL-AZUL-NOCHE",
+        "reserved": 0,
+        "wholesalePrice": 55500,
+        "retailPrice": 185000
       }
     ],
     "wholesalePriceCOP": 55500,
@@ -1138,32 +1474,56 @@
       {
         "size": "XS",
         "color": "Negro mate",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-15-XS-NEGRO-MATE",
+        "reserved": 0,
+        "wholesalePrice": 64500,
+        "retailPrice": 215000
       },
       {
         "size": "S",
         "color": "Negro mate",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-15-S-NEGRO-MATE",
+        "reserved": 0,
+        "wholesalePrice": 64500,
+        "retailPrice": 215000
       },
       {
         "size": "M",
         "color": "Negro mate",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-15-M-NEGRO-MATE",
+        "reserved": 0,
+        "wholesalePrice": 64500,
+        "retailPrice": 215000
       },
       {
         "size": "L",
         "color": "Negro mate",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-15-L-NEGRO-MATE",
+        "reserved": 0,
+        "wholesalePrice": 64500,
+        "retailPrice": 215000
       },
       {
         "size": "XL",
         "color": "Negro mate",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-15-XL-NEGRO-MATE",
+        "reserved": 0,
+        "wholesalePrice": 64500,
+        "retailPrice": 215000
       },
       {
         "size": "XXL",
         "color": "Negro mate",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-15-XXL-NEGRO-MATE",
+        "reserved": 0,
+        "wholesalePrice": 64500,
+        "retailPrice": 215000
       }
     ],
     "wholesalePriceCOP": 64500,
@@ -1216,32 +1576,56 @@
       {
         "size": "XS",
         "color": "Azul índigo vintage",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-16-XS-AZUL-INDIGO-VINTAGE",
+        "reserved": 0,
+        "wholesalePrice": 53400,
+        "retailPrice": 178000
       },
       {
         "size": "S",
         "color": "Azul índigo vintage",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-16-S-AZUL-INDIGO-VINTAGE",
+        "reserved": 0,
+        "wholesalePrice": 53400,
+        "retailPrice": 178000
       },
       {
         "size": "M",
         "color": "Azul índigo vintage",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-16-M-AZUL-INDIGO-VINTAGE",
+        "reserved": 0,
+        "wholesalePrice": 53400,
+        "retailPrice": 178000
       },
       {
         "size": "L",
         "color": "Azul índigo vintage",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-16-L-AZUL-INDIGO-VINTAGE",
+        "reserved": 0,
+        "wholesalePrice": 53400,
+        "retailPrice": 178000
       },
       {
         "size": "XL",
         "color": "Azul índigo vintage",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-16-XL-AZUL-INDIGO-VINTAGE",
+        "reserved": 0,
+        "wholesalePrice": 53400,
+        "retailPrice": 178000
       },
       {
         "size": "XXL",
         "color": "Azul índigo vintage",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-16-XXL-AZUL-INDIGO-VINTAGE",
+        "reserved": 0,
+        "wholesalePrice": 53400,
+        "retailPrice": 178000
       }
     ],
     "wholesalePriceCOP": 53400,
@@ -1295,32 +1679,56 @@
       {
         "size": "XS",
         "color": "Trigo tostado",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-17-XS-TRIGO-TOSTADO",
+        "reserved": 0,
+        "wholesalePrice": 29400,
+        "retailPrice": 98000
       },
       {
         "size": "S",
         "color": "Trigo tostado",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-17-S-TRIGO-TOSTADO",
+        "reserved": 0,
+        "wholesalePrice": 29400,
+        "retailPrice": 98000
       },
       {
         "size": "M",
         "color": "Trigo tostado",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-17-M-TRIGO-TOSTADO",
+        "reserved": 0,
+        "wholesalePrice": 29400,
+        "retailPrice": 98000
       },
       {
         "size": "L",
         "color": "Trigo tostado",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-17-L-TRIGO-TOSTADO",
+        "reserved": 0,
+        "wholesalePrice": 29400,
+        "retailPrice": 98000
       },
       {
         "size": "XL",
         "color": "Trigo tostado",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-17-XL-TRIGO-TOSTADO",
+        "reserved": 0,
+        "wholesalePrice": 29400,
+        "retailPrice": 98000
       },
       {
         "size": "XXL",
         "color": "Trigo tostado",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-17-XXL-TRIGO-TOSTADO",
+        "reserved": 0,
+        "wholesalePrice": 29400,
+        "retailPrice": 98000
       }
     ],
     "wholesalePriceCOP": 29400,
@@ -1373,32 +1781,56 @@
       {
         "size": "XS",
         "color": "Kaki natural",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-18-XS-KAKI-NATURAL",
+        "reserved": 0,
+        "wholesalePrice": 43500,
+        "retailPrice": 145000
       },
       {
         "size": "S",
         "color": "Kaki natural",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-18-S-KAKI-NATURAL",
+        "reserved": 0,
+        "wholesalePrice": 43500,
+        "retailPrice": 145000
       },
       {
         "size": "M",
         "color": "Kaki natural",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-18-M-KAKI-NATURAL",
+        "reserved": 0,
+        "wholesalePrice": 43500,
+        "retailPrice": 145000
       },
       {
         "size": "L",
         "color": "Kaki natural",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-18-L-KAKI-NATURAL",
+        "reserved": 0,
+        "wholesalePrice": 43500,
+        "retailPrice": 145000
       },
       {
         "size": "XL",
         "color": "Kaki natural",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-18-XL-KAKI-NATURAL",
+        "reserved": 0,
+        "wholesalePrice": 43500,
+        "retailPrice": 145000
       },
       {
         "size": "XXL",
         "color": "Kaki natural",
-        "stock": 10
+        "stock": 10,
+        "sku": "PROD-18-XXL-KAKI-NATURAL",
+        "reserved": 0,
+        "wholesalePrice": 43500,
+        "retailPrice": 145000
       }
     ],
     "wholesalePriceCOP": 43500,

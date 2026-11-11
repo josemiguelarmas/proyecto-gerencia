@@ -1,4 +1,9 @@
-// HU-05: modelo de variantes del catálogo e importación CSV.
+// HU-05 catalog model and CSV import. Pure functions over product objects (no persistence:
+// repos/products.js and repos/inventory.js save). Model: a Brand (brandId, brandName,
+// brandCity) owns Products; a Product owns Variants { sku, size, color, stock, reserved,
+// wholesalePrice, retailPrice }. stock and reserved are non-negative integers with
+// reserved <= stock, and available = stock - reserved is what the engine, the stylist and
+// exchanges may use. A soft-deleted product (deletedAt set) has no available units.
 const config = require('./config');
 
 // Tallas que ofrece una prenda: las de su tabla de medidas, o todas si no tiene.
@@ -7,7 +12,12 @@ function productSizes(product) {
   return table ? Object.keys(table) : config.SIZES.slice();
 }
 
-// Completa variants y wholesalePriceCOP en prendas creadas antes del modelo de variantes.
+// SKU generated when a brand does not send one: product id + size + color, e.g. PROD-01-M-NEGRO.
+function skuFor(productId, size, color) {
+  return `${productId}-${size}-${slug(color)}`.toUpperCase();
+}
+
+// Completa los campos del modelo en prendas guardadas antes de él (variants, sku, reserved, precios).
 function normalizeProduct(product) {
   let changed = false;
   if (!Array.isArray(product.variants)) {
@@ -23,13 +33,47 @@ function normalizeProduct(product) {
     product.wholesaleEstimated = true;
     changed = true;
   }
+  if (!product.brandId && product.brandName) {
+    product.brandId = slug(product.brandName);
+    changed = true;
+  }
+  product.variants.forEach(v => {
+    if (!v.sku) { v.sku = skuFor(product.id, v.size, v.color); changed = true; }
+    if (!Number.isInteger(v.reserved)) { v.reserved = 0; changed = true; }
+    if (!Number.isInteger(v.wholesalePrice)) { v.wholesalePrice = product.wholesalePriceCOP; changed = true; }
+    if (!Number.isInteger(v.retailPrice)) { v.retailPrice = product.priceCOP; changed = true; }
+  });
   return changed;
 }
 
+function isActive(product) {
+  return !product.deletedAt;
+}
+
+function availableUnits(variant) {
+  return Math.max(0, (Number(variant.stock) || 0) - (Number(variant.reserved) || 0));
+}
+
+// Unidades disponibles (stock - reservado) en una talla. Una prenda eliminada no tiene disponibles.
 function stockInSize(product, size) {
+  if (!isActive(product)) return 0;
   return (product.variants || [])
     .filter(v => v.size === size)
-    .reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+    .reduce((sum, v) => sum + availableUnits(v), 0);
+}
+
+// Brands are derived from the products that reference them (one brandId per allied brand).
+function listBrands(catalog) {
+  const brands = new Map();
+  catalog.forEach(p => {
+    const id = p.brandId || slug(p.brandName || '');
+    if (!id) return;
+    const brand = brands.get(id) || { id, name: p.brandName, city: p.brandCity || null, products: 0, activeProducts: 0 };
+    brand.products++;
+    if (isActive(p)) brand.activeProducts++;
+    brands.set(id, brand);
+  });
+  return [...brands.values()].sort((a, b) => a.name.localeCompare(b.name, 'es'));
 }
 
 // Parser CSV mínimo: separador coma, comillas dobles opcionales con "" como escape.
@@ -154,6 +198,7 @@ function importCatalogCsv(csvText, catalog) {
     const variant = product.variants.find(v => v.size === size && slug(v.color) === slug(r.color));
     if (variant) variant.stock = stock;
     else product.variants.push({ size, color: r.color, stock });
+    normalizeProduct(product);
     imported++;
   });
 
@@ -166,4 +211,4 @@ function importCatalogCsv(csvText, catalog) {
   };
 }
 
-module.exports = { normalizeProduct, stockInSize, productSizes, parseCsv, importCatalogCsv };
+module.exports = { normalizeProduct, stockInSize, availableUnits, isActive, skuFor, listBrands, productSizes, parseCsv, importCatalogCsv };
