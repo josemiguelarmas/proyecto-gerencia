@@ -260,3 +260,37 @@ test('un inicio de sesión correcto limpia el contador de fallos', async () => {
   assert.equal((await app.post('/api/auth/login', { email: c.email, password: 'clave-segura-1' })).status, 200);
   for (let i = 0; i < 4; i++) assert.equal((await app.post('/api/auth/login', { email: c.email, password: 'mala' })).status, 401);
 });
+
+// ---------- Roles ----------
+
+test('requireRole lanza 403 cuando el rol no está en la lista', () => {
+  const { requireRole, ROLES } = require('../backend/auth');
+  assert.deepEqual(Object.keys(ROLES).sort(), ['ADMIN', 'CLIENT', 'STYLIST', 'WAREHOUSE']);
+  const guard = requireRole('WAREHOUSE', 'ADMIN');
+  assert.doesNotThrow(() => guard({ role: 'WAREHOUSE' }));
+  assert.doesNotThrow(() => guard({ role: 'ADMIN' }));
+  assert.throws(() => guard({ role: 'CLIENT' }), err => err.status === 403);
+  assert.throws(() => guard(null), err => err.status === 403);
+});
+
+test('un CLIENT recibe 403 en rutas de administración y de bodega', async () => {
+  const c = await newClient();
+  for (const url of ['/api/admin/metrics', '/api/admin/outbox', '/api/admin/dispatch', '/api/admin/boxes', '/api/admin/inventory-movements', '/api/stylist/queue']) {
+    assert.equal((await app.get(url, c.token)).status, 403, url);
+  }
+  assert.equal((await app.post('/api/admin/boxes/box_003/status', { status: 'DELIVERED' }, c.token)).status, 403);
+});
+
+test('WAREHOUSE entra a despacho pero no al resto del panel; STYLIST no entra a despacho', async () => {
+  const warehouse = await app.loginAs('WAREHOUSE');
+  for (const url of ['/api/admin/dispatch', '/api/admin/boxes', '/api/admin/inventory-movements']) {
+    assert.equal((await app.get(url, warehouse)).status, 200, url);
+  }
+  for (const url of ['/api/admin/metrics', '/api/admin/clients', '/api/admin/payments', '/api/stylist/queue']) {
+    assert.equal((await app.get(url, warehouse)).status, 403, url);
+  }
+  const stylist = await app.loginAs('STYLIST');
+  assert.equal((await app.get('/api/admin/dispatch', stylist)).status, 403);
+  const admin = await app.loginAs('ADMIN');
+  assert.equal((await app.get('/api/admin/dispatch', admin)).status, 200);
+});

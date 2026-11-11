@@ -1,5 +1,5 @@
 // Users repository: lookup by id or e-mail (case-insensitive), sign-up with a scrypt
-// password hash, partial updates and password changes. Roles are CLIENT, STYLIST and ADMIN.
+// password hash, partial updates and password changes. Roles are CLIENT, STYLIST, ADMIN and WAREHOUSE (backend/auth.js ROLES).
 const store = require('./store');
 const { hashPassword, newId } = require('../lib/crypto');
 

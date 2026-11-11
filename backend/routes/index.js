@@ -1,10 +1,11 @@
 // Tiny API router. Each domain module exports a table of { method, path, handler } entries,
-// where path is an exact string or a RegExp and `public: true` skips authentication. The
-// dispatcher answers CORS preflights, tries public routes, then authenticates, applies the
-// role guard of the /api/stylist/ and /api/admin/ prefixes, and runs the first matching
-// handler with { req, res, authUser, match }. Unknown endpoints and thrown errors get the
+// where path is an exact string or a RegExp, `public: true` skips authentication and
+// `roles: [...]` overrides the roles of the route's prefix. The dispatcher sets the CORS
+// headers, answers preflights, tries public routes, then authenticates, applies requireRole
+// (the route's roles, or those of the /api/stylist/ and /api/admin/ prefixes) and runs the
+// first matching handler with { req, res, authUser, match }. Unknown endpoints and thrown errors get the
 // same JSON answers the original single-file router produced.
-const { authenticateRequest } = require('../auth');
+const { authenticateRequest, requireRole } = require('../auth');
 const { sendJson, sendPreflight, applyCors } = require('../lib/http');
 
 const routes = [
@@ -67,11 +68,13 @@ async function handleApiRequest(req, res, pathname) {
     }
 
     const guard = GUARDED_PREFIXES.find(g => pathname.startsWith(g.prefix));
-    if (guard && !guard.roles.includes(authUser.role)) {
-      return sendJson(res, 403, { error: guard.forbidden });
+    const hit = matchRoute(privateRoutes, req.method, pathname);
+    if (hit && hit.route.roles) {
+      requireRole(...hit.route.roles)(authUser, hit.route.forbidden || (guard && guard.forbidden));
+    } else if (guard) {
+      requireRole(...guard.roles)(authUser, guard.forbidden);
     }
 
-    const hit = matchRoute(privateRoutes, req.method, pathname);
     if (hit) return await hit.route.handler({ req, res, authUser, match: hit.match });
 
     const notFound = guard ? guard.notFound(req.method, pathname) : `Endpoint ${req.method} ${pathname} no encontrado.`;

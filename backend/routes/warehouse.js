@@ -43,9 +43,15 @@ function inventoryMovements({ res }) {
   return sendJson(res, 200, { movements: [...db.data.inventoryMovements].reverse().slice(0, 100) });
 }
 
+// F5: bodega (WAREHOUSE) y administración comparten las rutas de despacho.
+const WAREHOUSE_ACCESS = {
+  roles: ['WAREHOUSE', 'ADMIN'],
+  forbidden: 'Acceso denegado: se requiere rol de Bodega o de Administrador.'
+};
+
 module.exports = [
   { method: 'GET', path: '/api/admin/boxes', handler: listBoxes },
   { method: 'POST', path: /^\/api\/admin\/boxes\/([^/]+)\/status$/, handler: changeBoxStatus },
   { method: 'GET', path: '/api/admin/dispatch', handler: dispatchQueue },
   { method: 'GET', path: '/api/admin/inventory-movements', handler: inventoryMovements }
-];
+].map(route => ({ ...route, ...WAREHOUSE_ACCESS }));

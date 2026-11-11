@@ -91,6 +91,18 @@ function revokeTokens(userId) {
   return db.updateUser(userId, { tokenVersion: (user.tokenVersion || 0) + 1 });
 }
 
+// requireRole('WAREHOUSE', 'ADMIN') returns a guard that throws a 403 error (answered by the
+// router like any other error with a status) when the authenticated user lacks those roles.
+function requireRole(...roles) {
+  return function guard(authUser, message = 'Acceso denegado: no tienes permisos para esta sección.') {
+    if (!authUser || !roles.includes(authUser.role)) {
+      const err = new Error(message);
+      err.status = 403;
+      throw err;
+    }
+  };
+}
+
 module.exports = {
   ISSUER,
   AUDIENCE,
@@ -99,5 +111,6 @@ module.exports = {
   issueToken,
   verifyToken,
   authenticateRequest,
-  revokeTokens
+  revokeTokens,
+  requireRole
 };
