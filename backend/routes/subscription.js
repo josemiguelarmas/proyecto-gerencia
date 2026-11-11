@@ -68,34 +68,19 @@ async function changeState({ req, res, authUser, match }) {
   return sendJson(res, 200, { success: true, message: result.message, effect: result.effect, subscription: billing.publicSubscription(result.subscription) });
 }
 
-// HU-13: cancelación con encuesta de salida opcional. La encuesta nunca bloquea la cancelación.
+// HU-12/HU-13: cancelar devuelve primero la oferta de pausa (SCRUM-83); solo con
+// { confirm: true } cancela. La encuesta de salida es opcional y nunca bloquea la cancelación.
 async function cancel({ req, res, authUser }) {
-  const { reason, comment } = await parseJsonBody(req);
-  const sub = db.getSubscription(authUser.id);
-  // HU-12: cancelar detiene los cobros futuros; vale desde activa, en pausa o en mora.
-  billing.assertTransition(sub, 'cancel');
-  const validReason = reason && config.CANCELLATION_REASONS[reason] ? reason : null;
-  const cancellation = db.addCancellation(authUser.id, {
-    plan: sub.plan,
-    reason: validReason,
-    comment: typeof comment === 'string' ? comment.trim().slice(0, 500) : ''
-  });
-  const updated = db.saveSubscription(authUser.id, {
-    status: 'CANCELLED',
-    cancelledAt: cancellation.createdAt,
-    cancellationId: cancellation.id,
-    history: [...(sub.history || []), { type: 'CANCEL', plan: sub.plan, at: cancellation.createdAt }],
-    nextChargeAt: null,
-    pendingPlan: null,
-    pendingPlanFrom: null,
-    pausedUntil: null,
-    dunning: null
-  });
+  const { confirm, reason, comment } = await parseJsonBody(req);
+  const result = billing.cancel(authUser.id, { confirm, reason, comment });
   return sendJson(res, 200, {
     success: true,
-    message: 'Tu suscripción quedó cancelada. No se harán más cobros ni despachos.',
-    subscription: billing.publicSubscription(updated),
-    cancellation
+    step: result.step,
+    requiresConfirmation: result.step === 'RETENTION_OFFER',
+    offer: result.offer || null,
+    message: result.message,
+    subscription: billing.publicSubscription(result.subscription),
+    cancellation: result.cancellation || null
   });
 }
 

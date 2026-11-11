@@ -589,6 +589,55 @@ function changePlan(userId, plan, now = new Date()) {
   return { subscription: updated, effect, message };
 }
 
+// ---------------------------------------------------------------
+// HU-12/HU-13 (SCRUM-83): cancelación con oferta de retención y encuesta opcional
+// ---------------------------------------------------------------
+
+// Without confirm === true nothing changes: the answer is the retention offer (pause 1 month
+// when the subscription can be paused). With it, the subscription is cancelled, future charges
+// stop and the optional exit survey is saved linked to the cancellation.
+function cancel(userId, { confirm, reason, comment } = {}, now = new Date()) {
+  const sub = db.getSubscription(userId);
+  assertTransition(sub, 'cancel');
+
+  if (confirm !== true) {
+    const canPause = canTransition(sub.status, 'pause') && !sub.dunning;
+    const resumesOn = canPause ? addMonths(sub.nextChargeAt || now, config.PAUSE_MONTHS).toISOString() : null;
+    return {
+      step: 'RETENTION_OFFER',
+      requiresConfirmation: true,
+      subscription: sub,
+      offer: canPause ? { type: 'PAUSE', months: config.PAUSE_MONTHS, resumesOn } : null,
+      message: canPause
+        ? `Antes de irte: puedes pausar ${config.PAUSE_MONTHS} mes sin cobro ni caja y se reanuda solo el ${formatDate(resumesOn)}. Si igual quieres cancelar, confírmalo.`
+        : 'Confirma que quieres cancelar tu suscripción.'
+    };
+  }
+
+  const cancellation = db.addCancellation(userId, {
+    plan: sub.plan,
+    reason: reason && config.CANCELLATION_REASONS[reason] ? reason : null,
+    comment: typeof comment === 'string' ? comment.trim().slice(0, 500) : ''
+  });
+  const updated = db.saveSubscription(userId, {
+    status: 'CANCELLED',
+    cancelledAt: cancellation.createdAt,
+    cancellationId: cancellation.id,
+    history: [...(sub.history || []), { type: 'CANCEL', plan: sub.plan, at: cancellation.createdAt }],
+    nextChargeAt: null,
+    pendingPlan: null,
+    pendingPlanFrom: null,
+    pausedUntil: null,
+    dunning: null
+  });
+  return {
+    step: 'CANCELLED',
+    subscription: updated,
+    cancellation,
+    message: 'Tu suscripción quedó cancelada. No se harán más cobros ni despachos.'
+  };
+}
+
 function paymentsReport() {
   const all = db.getPayments();
   const approved = all.filter(p => p.status === 'APPROVED');
@@ -635,6 +684,7 @@ module.exports = {
   resume,
   changePlan,
   planChangeEffect,
+  cancel,
   assertTransition,
   paymentsReport
 };

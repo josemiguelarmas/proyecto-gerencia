@@ -440,9 +440,10 @@ async function runSprint2Tests({ token, newToken, newEmail, adminToken, delivere
   console.log('✓ 25. HU-10: recordatorio de calificación a los 3 días, enviado una sola vez y solo por admin');
 
   // 26. HU-13: cancelación con encuesta y conteo agregado
+  // SCRUM-83: la cancelación se completa solo con confirm: true (sin él responde la oferta de pausa).
   const before = (await request('GET', '/api/admin/cancellation-reasons', null, adminToken)).body;
   assert.strictEqual((await request('GET', '/api/subscription', null, newToken)).body.subscription.status, 'ACTIVE', 'Pagó en la prueba 5');
-  const cancelRes = await request('POST', '/api/subscription/cancel', { reason: 'precio', comment: 'Está caro para mí' }, newToken);
+  const cancelRes = await request('POST', '/api/subscription/cancel', { confirm: true, reason: 'precio', comment: 'Está caro para mí' }, newToken);
   assert.strictEqual(cancelRes.status, 200);
   assert.strictEqual(cancelRes.body.subscription.status, 'CANCELLED');
   assert.strictEqual(cancelRes.body.cancellation.reason, 'precio');
@@ -459,7 +460,7 @@ async function runSprint2Tests({ token, newToken, newEmail, adminToken, delivere
   const silentReg = await request('POST', '/api/auth/register', validRegistration(silentEmail));
   await request('PUT', '/api/profile', { styles: ['minimal'], occasions: ['clase'], fit: 'regular', line: 'u', plan: 'estilo', measures: { height: 170, weight: 65, build: 'media', usual: 'M' } }, silentReg.body.token);
   await subscribeWith(silentReg.body.token, { plan: 'estilo' });
-  const silentCancel = await request('POST', '/api/subscription/cancel', {}, silentReg.body.token);
+  const silentCancel = await request('POST', '/api/subscription/cancel', { confirm: true }, silentReg.body.token);
   assert.strictEqual(silentCancel.status, 200);
   assert.strictEqual(silentCancel.body.cancellation.reason, null);
   const afterSilent = (await request('GET', '/api/admin/cancellation-reasons', null, adminToken)).body;
@@ -814,7 +815,7 @@ async function runPrompt3Tests({ adminToken, stylistToken }) {
   assert.strictEqual((await request('POST', '/api/subscription/pause', {}, pd.token)).status, 409, 'PAST_DUE no se pausa');
   assert.strictEqual((await request('POST', '/api/subscription/change-plan', { plan: 'estilo' }, pd.token)).status, 409, 'PAST_DUE no cambia de plan');
   assert.strictEqual((await request('POST', '/api/subscription/resume', {}, pd.token)).status, 409);
-  assert.strictEqual((await request('POST', '/api/subscription/cancel', {}, pd.token)).status, 200, 'PAST_DUE sí se cancela');
+  assert.strictEqual((await request('POST', '/api/subscription/cancel', { confirm: true }, pd.token)).status, 200, 'PAST_DUE sí se cancela');
   assert.strictEqual((await request('POST', '/api/subscription/pause', {}, pd.token)).status, 409, 'CANCELLED no se pausa');
   assert.strictEqual((await request('POST', '/api/subscription/resume', {}, b.token)).status, 409, 'NONE no se reanuda');
   console.log('✓ 48. HU-12: matriz de 5 estados × 7 acciones y transiciones inválidas por API responden 409');
@@ -871,7 +872,7 @@ async function runPrompt3Tests({ adminToken, stylistToken }) {
   await subscribeWith(cx.token);
   await request('POST', '/api/subscription/pause', {}, cx.token);
   const cxDue = db.getSubscription(cx.userId).nextChargeAt;
-  const cancelled = await request('POST', '/api/subscription/cancel', { reason: 'precio' }, cx.token);
+  const cancelled = await request('POST', '/api/subscription/cancel', { confirm: true, reason: 'precio' }, cx.token);
   assert.strictEqual(cancelled.status, 200);
   assert.strictEqual(cancelled.body.subscription.nextChargeAt, null);
   const paysBefore = db.getPayments(cx.userId).length;
