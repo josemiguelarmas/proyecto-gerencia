@@ -14,3 +14,4 @@ F5 | DONE | 94123d8 | tests/security.test.js (commits 2d6230e, ec40ab0, f4a5bab,
 F6 | DONE | e0782c4 | tests/adapters.test.js
 F7 | DONE | 82bba02 | tests/jobs.test.js
 SCRUM-38 | DONE | e04c657 | tests/catalog.test.js
+SCRUM-39 | DONE | cf94730 | tests/catalog.test.js
