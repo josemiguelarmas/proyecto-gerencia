@@ -73,7 +73,8 @@ prototipo-web/
 │   ├── routes/            # Rutas por dominio (auth, catalog, boxes, admin...) y enrutador en index.js
 │   ├── lib/               # Utilidades compartidas (http, accounts, boxes, clock)
 │   ├── auth.js            # Autenticación JWT y validación de roles (CLIENT/ADMIN)
-│   ├── database.js        # Base de datos JSON atómica con métricas y persistencia
+│   ├── database.js        # Fachada de la base de datos JSON (API histórica db)
+│   ├── repos/             # Repositorios por colección sobre store.js (escritura atómica)
 │   ├── engine.js          # Motor algorítmico de tallaje antropométrico
 │   └── data/
 │       ├── seed/          # Semillas versionadas: catalog.json (18 prendas) y db.json (sin contraseñas)
