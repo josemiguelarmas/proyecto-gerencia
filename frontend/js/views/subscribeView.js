@@ -131,6 +131,25 @@ TCB.views.subscribe = (() => {
         `;
         return;
       }
+      // SCRUM-58: el backend exige correo verificado; se avisa antes de pedir la tarjeta.
+      if (store.user.emailVerified === false) {
+        bodyEl.innerHTML = `
+          <div class="banner banner--warn">
+            <p><strong>Verifica tu correo para suscribirte.</strong> Te enviamos un enlace a <strong>${store.user.email}</strong>.</p>
+            <button type="button" class="btn btn--sm btn--ghost" id="btn-sub-resend" style="margin-top:8px">Reenviar enlace</button>
+            <p class="small muted" id="sub-resend-msg" role="status"></p>
+          </div>
+        `;
+        bodyEl.querySelector('#btn-sub-resend').addEventListener('click', async () => {
+          const msg = bodyEl.querySelector('#sub-resend-msg');
+          try {
+            msg.textContent = (await TCB.api.auth.resendVerification()).message;
+          } catch (err) {
+            msg.textContent = err.data?.error || err.message;
+          }
+        });
+        return;
+      }
       selectedPlan = selectedPlan || (store.profile && store.profile.plan) || 'esencial';
       bodyEl.innerHTML = `
         <form id="subscribe-form" class="stack" style="--stack:24px" novalidate>

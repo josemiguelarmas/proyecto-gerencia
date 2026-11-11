@@ -25,6 +25,17 @@ function addMonths(date, months) {
   return d;
 }
 
+// SCRUM-58: next billing date of a cycle anchored to the subscription day. Counting months
+// from the anchor (not from the last date) keeps a 31st anchor on the 31st when the month has it.
+function nextCycleDate(anchor, after) {
+  const limit = new Date(after);
+  for (let k = 1; k < 1200; k++) {
+    const candidate = addMonths(anchor, k);
+    if (candidate > limit) return candidate;
+  }
+  return addMonths(limit, 1);
+}
+
 function formatCOP(value) {
   return `COP ${Number(value).toLocaleString('es-CO')}`;
 }
@@ -66,6 +77,8 @@ function publicSubscription(sub) {
   return {
     ...rest,
     hasPaymentMethod: Boolean(paymentToken),
+    cycleAnchor: sub.cycleAnchor || sub.startedAt || null,
+    nextBillingAt: sub.nextChargeAt || null,
     planName: plan ? plan.name : sub.plan,
     priceCOP: plan ? plan.priceCOP : null,
     pendingPlanName: sub.pendingPlan ? config.PLANS[sub.pendingPlan].name : null
@@ -264,6 +277,10 @@ function periodKey(date) {
 
 function subscribe(user, { plan, paymentToken, fiscal }, now = new Date()) {
   if (!config.PLANS[plan]) throw httpError(400, 'Elige un plan válido: Esencial o Estilo.');
+  // SCRUM-58: only a verified e-mail can subscribe (the flag comes from the verification link).
+  if (user.emailVerified === false) {
+    throw httpError(403, `Verifica tu correo antes de suscribirte. Te enviamos el enlace a ${user.email}; también puedes pedir uno nuevo desde "Mi Perfil".`, { code: 'EMAIL_NOT_VERIFIED' });
+  }
   const card = payments.describeToken(paymentToken);
   if (!card) throw httpError(400, 'Registra una tarjeta antes de pagar.');
   if (fiscal) {
@@ -296,6 +313,7 @@ function subscribe(user, { plan, paymentToken, fiscal }, now = new Date()) {
     cardBrand: card.brand,
     cardLast4: card.last4,
     startedAt: now.toISOString(),
+    cycleAnchor: now.toISOString(),
     nextChargeAt: addMonths(now, 1).toISOString(),
     pendingPlan: null,
     pendingPlanFrom: null,
@@ -326,7 +344,9 @@ function advanceAfterApproval(sub, payment, now) {
     status: 'ACTIVE',
     dunning: null,
     lastPaymentId: payment.id,
-    nextChargeAt: addMonths(sub.nextChargeAt || now, 1).toISOString(),
+    nextChargeAt: (sub.cycleAnchor
+      ? nextCycleDate(sub.cycleAnchor, sub.nextChargeAt || now)
+      : addMonths(sub.nextChargeAt || now, 1)).toISOString(),
     updatedAt: now.toISOString()
   });
   if (!payment.subscriptionId) payment.subscriptionId = sub.id;
@@ -547,6 +567,7 @@ module.exports = {
   TRANSITIONS,
   canTransition,
   addMonths,
+  nextCycleDate,
   publicSubscription,
   validateFiscal,
   cleanFiscal,

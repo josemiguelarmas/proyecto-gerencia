@@ -32,6 +32,9 @@ const PLANS = {
 };
 Object.values(PLANS).forEach(plan => { plan.targetCostCOP = targetCost(plan.priceCOP); });
 
+// SCRUM-58 (stream D1): share of the plan price used as target garment cost (assumption).
+const PLAN_TARGET_COST_RATE = Number(process.env.PLAN_TARGET_COST_RATE) > 0 ? Number(process.env.PLAN_TARGET_COST_RATE) : 0.40;
+
 // HU-14: plazo único de cambio por talla, en días hábiles desde la entrega (lo lee también el frontend).
 const RETURN_WINDOW_BUSINESS_DAYS = Number(process.env.RETURN_WINDOW_BUSINESS_DAYS) || 5;
 
@@ -93,5 +96,18 @@ module.exports = {
     'Solo aplica a problemas de talla o ajuste (muy pequeña, muy grande o de proporciones).',
     'La prenda debe estar sin uso, sin lavar y con sus etiquetas.',
     'La recogida y el envío de la nueva talla no tienen costo en Cali.'
-  ]
+  ],
+
+  // ---- Stream D1 (HU-08/12/13) ----
+  // SCRUM-58: plan catalog for billing. targetCost is the target garment cost per box, by default
+  // 40 % of the price (ASSUMPTION to confirm with the team; PLAN_TARGET_COST_RATE overrides it).
+  // Note: the curation engine still caps boxes with PLANS[plan].targetCostCOP (Sprint 2 formula).
+  PLAN_TARGET_COST_RATE,
+  PLAN_CONFIG: Object.fromEntries(Object.entries(PLANS).map(([key, plan]) => [key, {
+    name: plan.name,
+    priceCOP: plan.priceCOP,
+    items: plan.items,
+    billingCycleMonths: 1,
+    targetCost: Math.round(plan.priceCOP * PLAN_TARGET_COST_RATE)
+  }]))
 };

@@ -98,3 +98,40 @@ test('SCRUM-57: el SDK de la pasarela simulada tokeniza en el cliente sin expone
   assert.deepEqual(payments.describeToken(t.token), { brand: 'Visa', last4: '0002' });
   assert.equal(payments.INTERFACE.includes('tokenize'), false, 'el servidor no tokeniza');
 });
+
+// ---------------------------------------------------------------- SCRUM-58
+test('SCRUM-58: un correo sin verificar no puede suscribirse ni se le cobra', async () => {
+  const c = await newClient({ verified: false });
+  const res = await subscribe(c, { paymentToken: 'tok_ok' });
+  assert.equal(res.status, 403);
+  assert.equal(res.body.code, 'EMAIL_NOT_VERIFIED');
+  assert.match(res.body.error, /Verifica tu correo/);
+  assert.equal(db.getPayments(c.userId).length, 0);
+  assert.equal(db.getSubscription(c.userId).status, 'NONE');
+  db.updateUser(c.userId, { emailVerified: true });
+  assert.equal((await subscribe(c, { paymentToken: 'tok_ok' })).status, 201);
+});
+
+test('SCRUM-58: el ciclo se ancla al día de alta (31 de enero → 28 de febrero → 31 de marzo)', async () => {
+  const c = await newClient();
+  const anchor = new Date(2027, 0, 31, 12);
+  const { subscription } = billing.subscribe(db.findUserById(c.userId), { plan: 'estilo', paymentToken: 'tok_ok', fiscal: FISCAL }, anchor);
+  assert.equal(subscription.cycleAnchor, anchor.toISOString());
+  assert.equal(new Date(subscription.nextChargeAt).getDate(), 28);
+  billing.runRecurringBilling(new Date(2027, 1, 28, 13));
+  const sub = db.getSubscription(c.userId);
+  assert.equal(new Date(sub.nextChargeAt).getMonth(), 2);
+  assert.equal(new Date(sub.nextChargeAt).getDate(), 31, 'no se corre al 28 para siempre');
+  const pub = billing.publicSubscription(sub);
+  assert.equal(pub.nextBillingAt, sub.nextChargeAt);
+  assert.equal(pub.paymentToken, undefined, 'el token no sale al cliente');
+  assert.deepEqual(Object.keys(sub).filter(k => /card|cvv|cvc|number/i.test(k)).sort(), ['cardBrand', 'cardLast4']);
+});
+
+test('SCRUM-58: PLAN_CONFIG trae precio, prendas y costo objetivo (40 % del precio por defecto)', () => {
+  assert.deepEqual(Object.keys(config.PLAN_CONFIG), ['esencial', 'estilo']);
+  assert.equal(config.PLAN_CONFIG.esencial.priceCOP, 129900);
+  assert.equal(config.PLAN_CONFIG.estilo.items, 5);
+  assert.equal(config.PLAN_CONFIG.esencial.targetCost, Math.round(129900 * 0.40));
+  assert.equal(config.PLAN_CONFIG.estilo.billingCycleMonths, 1);
+});

@@ -95,6 +95,7 @@ test('suscribirse con tok_declined da 402 y con tok_ok activa la suscripción', 
     name: 'Cliente Pagos', email, password: 'clave-segura-1', birthDate: '2000-05-20', acceptedPolicy: true, policyVersion: config.POLICY.version
   });
   const token = reg.body.token;
+  require('../backend/database').db.updateUser(reg.body.user.id, { emailVerified: true }); // SCRUM-58
   const fiscal = { docType: 'CC', docNumber: '1144123456', address: 'Calle 5 # 38-20', city: 'Cali' };
   const declined = await app.post('/api/subscription/subscribe', { plan: 'esencial', paymentToken: 'tok_declined', fiscal }, token);
   assert.equal(declined.status, 402);

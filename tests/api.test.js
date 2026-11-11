@@ -97,8 +97,16 @@ async function tokenizeCard(number) {
   return simulatedGateway.tokenize({ number, expMonth: 12, expYear: 2030, cvc: '123', holder: 'Usuario Prueba' }).token;
 }
 
+// SCRUM-58: solo un correo verificado puede suscribirse. Las pruebas viejas registran y se
+// suscriben de inmediato, así que marcan el correo como verificado (lo que hace el enlace).
+async function markEmailVerified(token) {
+  const me = await request('GET', '/api/auth/me', null, token);
+  db.updateUser(me.body.user.id, { emailVerified: true });
+}
+
 // HU-08: desde el Sprint 2 la suscripción nace con el primer pago aprobado.
 async function subscribeWith(token, { card = CARD_OK, plan = 'esencial', fiscal = FISCAL } = {}) {
+  await markEmailVerified(token);
   const paymentToken = await tokenizeCard(card, token);
   return request('POST', '/api/subscription/subscribe', { plan, paymentToken, fiscal }, token);
 }
@@ -381,12 +389,17 @@ async function runSprint2Tests({ token, newToken, newEmail, adminToken, delivere
   console.log('✓ 22. HU-01: token de recuperación vencido rechazado');
 
   // 23. HU-01: verificación de correo
-  const meBefore = await request('GET', '/api/auth/me', null, newToken);
+  // SCRUM-58: el usuario de la prueba 5 ya verificó su correo para poder suscribirse, así que
+  // la verificación se prueba con una cuenta recién creada.
+  const unverifiedEmail = `verify_${Date.now()}@test.com`;
+  const unverifiedToken = (await request('POST', '/api/auth/register', validRegistration(unverifiedEmail))).body.token;
+  outbox = (await request('GET', '/api/admin/outbox', null, adminToken)).body.messages;
+  const meBefore = await request('GET', '/api/auth/me', null, unverifiedToken);
   assert.strictEqual(meBefore.body.user.emailVerified, false);
-  const verifyToken = tokenFromMail(lastMailTo(outbox, newEmail, 'EMAIL_VERIFICATION'));
+  const verifyToken = tokenFromMail(lastMailTo(outbox, unverifiedEmail, 'EMAIL_VERIFICATION'));
   const verifyRes = await request('POST', '/api/auth/verify-email', { token: verifyToken });
   assert.strictEqual(verifyRes.status, 200);
-  const meAfter = await request('GET', '/api/auth/me', null, newToken);
+  const meAfter = await request('GET', '/api/auth/me', null, unverifiedToken);
   assert.strictEqual(meAfter.body.user.emailVerified, true);
   console.log('✓ 23. HU-01: verificación de correo marca emailVerified (sin bloquear el inicio de sesión)');
 
@@ -704,6 +717,7 @@ async function runPrompt3Tests({ adminToken, stylistToken }) {
   console.log('✓ 43. HU-08: tokenización en el navegador; el servidor solo recibe token, marca y últimos 4');
 
   // 44. HU-08: suscripción Esencial aprobada con 4242, confirmación en la bandeja de salida
+  await markEmailVerified(a.token);
   const okSub = await request('POST', '/api/subscription/subscribe', { plan: 'esencial', paymentToken: tok.body.token, fiscal: FISCAL }, a.token);
   assert.strictEqual(okSub.status, 201);
   assert.strictEqual(okSub.body.subscription.status, 'ACTIVE');
@@ -879,6 +893,7 @@ async function runPrompt3Tests({ adminToken, stylistToken }) {
   const invoiceMail = (await outboxFor(adminToken, a.email, 'INVOICE'))[0];
   assert.ok(invoiceMail.body.includes(invoice.number) && /SIMULADO/.test(invoiceMail.body) && invoiceMail.body.includes('IVA 19 %'));
   const noFiscal = await newClientWithoutPlan();
+  await markEmailVerified(noFiscal.token);
   const missing = await request('POST', '/api/subscription/subscribe', { plan: 'esencial', paymentToken: await tokenizeCard(CARD_OK, noFiscal.token) }, noFiscal.token);
   assert.strictEqual(missing.status, 400, 'Sin datos fiscales no cobra');
   assert.strictEqual((await request('PUT', '/api/profile/fiscal', { ...FISCAL, docNumber: '12' }, noFiscal.token)).status, 400);

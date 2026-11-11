@@ -89,6 +89,7 @@ test('paymentReconciliation.run lista los pagos sin conciliar después de 24 h',
     birthDate: '2000-05-20', acceptedPolicy: true, policyVersion: config.POLICY.version
   });
   const fiscal = { docType: 'CC', docNumber: '1144123456', address: 'Calle 5 # 38-20', city: 'Cali' };
+  db.updateUser(reg.body.user.id, { emailVerified: true }); // SCRUM-58: subscribing needs a verified e-mail
   assert.equal((await app.post('/api/subscription/subscribe', { plan: 'esencial', paymentToken: 'tok_ok', fiscal }, reg.body.token)).status, 201);
   const payment = db.getPayments().find(p => p.userId === reg.body.user.id);
   assert.equal(payment.reconciliation.status, 'OK', 'el webhook simulado concilia en el acto');
