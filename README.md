@@ -98,7 +98,8 @@ prototipo-web/
 │           ├── authView.js        # Modales de acceso dual (Cliente y Admin)
 │           ├── onboardingView.js  # 3 pasos antropométricos hacia el backend
 │           ├── boxView.js         # Caja sellada, desempaque y descubrimiento individual
-│           ├── adminView.js       # Consola profesional de operaciones y auditoría
+│           ├── adminView.js       # Consola de operaciones: carga de datos, cabecera y barra de pestañas
+│           ├── admin/             # Una pestaña del panel admin por archivo (boxes, products, kpis...)
 │           ├── returnsView.js     # Módulo especializado de cambio por talla
 │           ├── historyView.js     # Historial de cajas y prendas entregadas
 │           └── profileView.js     # Perfil antropométrico y marcas locales
