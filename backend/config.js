@@ -35,6 +35,16 @@ Object.values(PLANS).forEach(plan => { plan.targetCostCOP = targetCost(plan.pric
 // SCRUM-58 (stream D1): share of the plan price used as target garment cost (assumption).
 const PLAN_TARGET_COST_RATE = Number(process.env.PLAN_TARGET_COST_RATE) > 0 ? Number(process.env.PLAN_TARGET_COST_RATE) : 0.40;
 
+// SCRUM-59 (stream D1): the webhook secret is required for a real gateway. Only the simulated
+// provider falls back to a development secret, so a missing variable never signs real events.
+function resolveWebhookSecret({ provider, secret }) {
+  if (secret) return secret;
+  if (provider !== 'simulated') {
+    throw new Error(`Falta PAYMENT_WEBHOOK_SECRET: es obligatorio con PAYMENT_PROVIDER=${provider}. Cópialo del panel de la pasarela (ver docs/integrations.md).`);
+  }
+  return 'whsec_simulado_desarrollo';
+}
+
 // HU-14: plazo único de cambio por talla, en días hábiles desde la entrega (lo lee también el frontend).
 const RETURN_WINDOW_BUSINESS_DAYS = Number(process.env.RETURN_WINDOW_BUSINESS_DAYS) || 5;
 
@@ -68,7 +78,7 @@ module.exports = {
   },
   // HU-08: reintentos del cobro recurrente, en días desde el primer fallo ("1,3,5").
   PAYMENT_RETRY_DAYS: (process.env.PAYMENT_RETRY_DAYS || '1,3,5').split(',').map(Number).filter(n => n > 0),
-  PAYMENT_WEBHOOK_SECRET: process.env.PAYMENT_WEBHOOK_SECRET || 'whsec_simulado_desarrollo',
+  PAYMENT_WEBHOOK_SECRET: resolveWebhookSecret({ provider: env.PROVIDERS.payment, secret: env.PAYMENT_WEBHOOK_SECRET }),
   // F7: los jobs se revisan cada hora (backend/jobs/index.js). El lote mensual de cajas corre
   // solo el día BOX_BATCH_DAY de cada mes (supuesto: día 1, pendiente de confirmar con el equipo).
   JOBS_INTERVAL_MS: 60 * 60 * 1000,
@@ -103,6 +113,7 @@ module.exports = {
   // 40 % of the price (ASSUMPTION to confirm with the team; PLAN_TARGET_COST_RATE overrides it).
   // Note: the curation engine still caps boxes with PLANS[plan].targetCostCOP (Sprint 2 formula).
   PLAN_TARGET_COST_RATE,
+  resolveWebhookSecret,
   PLAN_CONFIG: Object.fromEntries(Object.entries(PLANS).map(([key, plan]) => [key, {
     name: plan.name,
     priceCOP: plan.priceCOP,

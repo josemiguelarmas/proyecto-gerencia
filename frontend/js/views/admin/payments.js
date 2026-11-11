@@ -34,7 +34,7 @@ TCB.adminTabs.payments = (() => {
             ['Comisión pasarela', cop(r.feeCOP)],
             ['Neto', cop(r.netCOP)],
             ['Aprobados / rechazados', `${r.approvedCount} / ${r.declinedCount}`],
-            ['Conciliados', `${r.reconciliation.OK} OK · ${r.reconciliation.PENDING} pendientes · ${r.reconciliation.MISMATCH} con diferencia`]
+            ['Conciliados', `${r.reconciliation.OK} OK · ${r.reconciliation.PENDING} pendientes · ${r.reconciliation.MISMATCH} con diferencia · ${r.reconciliation.MISSING || 0} sin registro en la pasarela`]
           ].map(([label, value]) => `
             <div style="background:var(--sheet);border:var(--line);padding:14px">
               <p class="small muted">${label}</p>

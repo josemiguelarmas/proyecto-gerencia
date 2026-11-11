@@ -135,3 +135,79 @@ test('SCRUM-58: PLAN_CONFIG trae precio, prendas y costo objetivo (40 % del prec
   assert.equal(config.PLAN_CONFIG.esencial.targetCost, Math.round(129900 * 0.40));
   assert.equal(config.PLAN_CONFIG.estilo.billingCycleMonths, 1);
 });
+
+// ---------------------------------------------------------------- SCRUM-59
+test('SCRUM-59: webhook con firma inválida 401 y webhook duplicado (mismo id de evento) no se reaplica', async () => {
+  const c = await newClient();
+  assert.equal((await subscribe(c, { paymentToken: 'tok_ok' })).status, 201);
+  const payment = db.getPayments(c.userId)[0];
+  const charge = { chargeId: payment.providerChargeId, status: 'APPROVED', amountCOP: payment.amountCOP, feeCOP: payment.feeCOP };
+
+  const forged = payments.buildWebhook(charge, { eventId: 'evt_forged' });
+  assert.equal((await rawWebhook(forged.rawBody, 'a'.repeat(64))).status, 401);
+  assert.equal((await rawWebhook(forged.rawBody, 'no-hex')).status, 401);
+  const tampered = forged.rawBody.replace(`"amountCOP":${payment.amountCOP}`, '"amountCOP":1');
+  assert.equal((await rawWebhook(tampered, forged.signature)).status, 401, 'cuerpo alterado con la firma original');
+
+  const wrong = payments.buildWebhook({ ...charge, amountCOP: 1 }, { eventId: 'evt_dup_1' });
+  const first = await rawWebhook(wrong.rawBody, wrong.signature);
+  assert.equal(first.status, 200);
+  assert.equal(first.body.reconciliation.status, 'MISMATCH');
+  assert.ok(db.getAlerts().some(a => a.type === 'PAYMENT_MISMATCH' && a.refId === payment.id && !a.resolvedAt), 'alerta al equipo');
+
+  const again = await rawWebhook(wrong.rawBody, wrong.signature);
+  assert.equal(again.status, 200);
+  assert.equal(again.body.duplicate, true);
+  assert.equal(db.getAlerts().filter(a => a.type === 'PAYMENT_MISMATCH' && a.refId === payment.id).length, 1, 'el duplicado no crea otra alerta');
+
+  const good = payments.buildWebhook(charge, { eventId: 'evt_dup_2' });
+  assert.equal((await rawWebhook(good.rawBody, good.signature)).body.reconciliation.status, 'OK');
+  assert.ok(db.getAlerts().find(a => a.type === 'PAYMENT_MISMATCH' && a.refId === payment.id).resolvedAt, 'la alerta se cierra');
+  const replayOld = await rawWebhook(wrong.rawBody, wrong.signature);
+  assert.equal(replayOld.body.duplicate, true, 'un evento viejo reenviado no vuelve a MISMATCH');
+  assert.equal(db.getPayments(c.userId)[0].reconciliation.status, 'OK');
+});
+
+test('SCRUM-59: el evento aplica el resultado a un cobro que seguía PENDING (pasarela asíncrona)', async () => {
+  const c = await newClient();
+  db.updateUser(c.userId, { fiscal: FISCAL });
+  const charge = payments.charge({ token: 'tok_ok', amountCOP: 129900, idempotencyKey: `async_${c.userId}`, description: 'x' });
+  const payment = db.addPayment({ userId: c.userId, plan: 'esencial', period: '2027-01-10', kind: 'RECURRING', amountCOP: 129900, feeCOP: 0, netCOP: 129900,
+    status: 'PENDING', reason: null, idempotencyKey: `async_${c.userId}`, providerChargeId: charge.chargeId, provider: 'simulated' });
+  const event = payments.buildWebhook(charge);
+  const res = await rawWebhook(event.rawBody, event.signature);
+  assert.equal(res.status, 200);
+  const stored = db.findPayment(p => p.id === payment.id);
+  assert.equal(stored.status, 'APPROVED');
+  assert.equal(stored.feeCOP, Math.round(129900 * config.PAYMENT_FEE_RATE));
+  assert.equal(stored.netCOP, 129900 - stored.feeCOP);
+  assert.equal(stored.reconciliation.status, 'OK');
+  assert.ok(stored.invoiceId, 'un cobro confirmado por el evento se factura');
+});
+
+test('SCRUM-59: el job de conciliación consulta a la pasarela los cobros sin evento', () => {
+  const charge = payments.charge({ token: 'tok_ok', amountCOP: 129900, idempotencyKey: `recon_${Date.now()}`, description: 'x' });
+  const base = { userId: 'usr_recon', plan: 'esencial', period: '2027-01-10', kind: 'RECURRING', amountCOP: 129900, feeCOP: charge.feeCOP, netCOP: 129900 - charge.feeCOP, status: 'APPROVED', provider: 'simulated' };
+  const old = new Date(Date.now() - 2 * 86400000).toISOString();
+  const matching = db.addPayment({ ...base, providerChargeId: charge.chargeId, idempotencyKey: 'r1', createdAt: old });
+  const wrongAmount = db.addPayment({ ...base, amountCOP: 199900, providerChargeId: charge.chargeId, idempotencyKey: 'r2', createdAt: old });
+  const unknown = db.addPayment({ ...base, providerChargeId: 'ch_sim_noexiste', idempotencyKey: 'r3', createdAt: old });
+  const fresh = db.addPayment({ ...base, providerChargeId: charge.chargeId, idempotencyKey: 'r4' });
+
+  const result = jobs.jobs.paymentReconciliation.run({ now: new Date() });
+  [matching, wrongAmount, unknown].forEach(p => assert.ok(result.stalePendingIds.includes(p.id)));
+  assert.equal(result.stalePendingIds.includes(fresh.id), false);
+  assert.equal(db.findPayment(p => p.id === matching.id).reconciliation.status, 'OK');
+  assert.equal(db.findPayment(p => p.id === matching.id).reconciliation.source, 'job');
+  assert.equal(db.findPayment(p => p.id === wrongAmount.id).reconciliation.status, 'MISMATCH');
+  assert.equal(db.findPayment(p => p.id === unknown.id).reconciliation.status, 'MISSING');
+  assert.ok(result.mismatchIds.includes(wrongAmount.id));
+  assert.ok(result.missingIds.includes(unknown.id));
+  assert.equal(db.findPayment(p => p.id === fresh.id).reconciliation.status, 'PENDING', 'espera 24 h al webhook');
+});
+
+test('SCRUM-59: PAYMENT_WEBHOOK_SECRET es obligatorio si el proveedor no es simulated', () => {
+  assert.throws(() => config.resolveWebhookSecret({ provider: 'pasarela_real', secret: '' }), /PAYMENT_WEBHOOK_SECRET/);
+  assert.equal(config.resolveWebhookSecret({ provider: 'pasarela_real', secret: 's3cret' }), 's3cret');
+  assert.ok(config.resolveWebhookSecret({ provider: 'simulated', secret: '' }).length > 0, 'el simulado tiene secreto de desarrollo');
+});

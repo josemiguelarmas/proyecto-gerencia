@@ -202,8 +202,38 @@ function runInvoiceRetries(now = new Date()) {
 // HU-08: cobros, webhook y conciliación
 // ---------------------------------------------------------------
 
+// SCRUM-59: differences between our charge and the gateway's view of it (status, amount).
+function chargeMismatches(payment, remote) {
+  const mismatches = [];
+  if (remote.status !== payment.status) mismatches.push(`estado ${remote.status} ≠ ${payment.status}`);
+  if (Number(remote.amountCOP) !== payment.amountCOP) mismatches.push(`monto ${remote.amountCOP} ≠ ${payment.amountCOP}`);
+  return mismatches;
+}
+
+// Records the reconciliation result. A MISMATCH opens one alert for the team; OK closes it.
+function setReconciliation(payment, { status, detail = null, event = null, source }, now = new Date()) {
+  payment.reconciliation = { status, at: now.toISOString(), detail, event, source };
+  const open = db.data.alerts.find(a => a.type === 'PAYMENT_MISMATCH' && a.refId === payment.id && !a.resolvedAt);
+  if (status === 'MISMATCH' && !open) {
+    db.addAlert({ type: 'PAYMENT_MISMATCH', refId: payment.id, message: `El pago ${payment.id} no cuadra con la pasarela: ${detail || status}.` });
+  } else if (status === 'OK' && open) {
+    open.resolvedAt = now.toISOString();
+  }
+  db.save();
+}
+
+// A charge still PENDING locally (asynchronous gateway) takes the result the event confirms.
+function applyEventToPendingCharge(payment, data, now) {
+  if (payment.status !== 'PENDING' || !['APPROVED', 'DECLINED'].includes(data.status)) return;
+  const feeCOP = data.status === 'APPROVED' ? Math.round(payment.amountCOP * config.PAYMENT_FEE_RATE) : 0;
+  Object.assign(payment, { status: data.status, feeCOP, netCOP: payment.amountCOP - feeCOP, confirmedAt: now.toISOString() });
+  db.save();
+  if (payment.status === 'APPROVED' && !payment.invoiceId) invoiceForPayment(payment, now);
+}
+
 // Procesa un evento de la pasarela. Devuelve { status, body } para la respuesta HTTP.
-function processPaymentWebhook(rawBody, signature) {
+// Idempotente por id de evento: un evento ya aplicado responde 200 con duplicate: true.
+function processPaymentWebhook(rawBody, signature, now = new Date()) {
   if (!payments.verifyWebhook(rawBody, signature)) {
     return { status: 401, body: { error: 'Firma del webhook inválida.' } };
   }
@@ -213,21 +243,44 @@ function processPaymentWebhook(rawBody, signature) {
   } catch (e) {
     return { status: 400, body: { error: 'El cuerpo del webhook no es JSON válido.' } };
   }
+  if (!event || typeof event.id !== 'string' || !event.id) {
+    return { status: 400, body: { error: 'El evento no trae id.' } };
+  }
   const data = event.data || {};
   const payment = db.findPayment(p => p.providerChargeId === data.chargeId);
   if (!payment) return { status: 404, body: { error: 'Cobro no encontrado para conciliar.' } };
+  if ((payment.webhookEventIds || []).includes(event.id)) {
+    return { status: 200, body: { received: true, duplicate: true, paymentId: payment.id, reconciliation: payment.reconciliation } };
+  }
+  payment.webhookEventIds = [...(payment.webhookEventIds || []), event.id];
 
-  const mismatches = [];
-  if (data.status !== payment.status) mismatches.push(`estado ${data.status} ≠ ${payment.status}`);
-  if (Number(data.amountCOP) !== payment.amountCOP) mismatches.push(`monto ${data.amountCOP} ≠ ${payment.amountCOP}`);
-  payment.reconciliation = {
+  applyEventToPendingCharge(payment, data, now);
+  const mismatches = chargeMismatches(payment, data);
+  setReconciliation(payment, {
     status: mismatches.length ? 'MISMATCH' : 'OK',
-    at: new Date().toISOString(),
     detail: mismatches.join(' · ') || null,
-    event: event.type
-  };
-  db.save();
+    event: event.type,
+    source: 'webhook'
+  }, now);
   return { status: 200, body: { received: true, paymentId: payment.id, reconciliation: payment.reconciliation } };
+}
+
+// SCRUM-59: reconciliation job. Charges with no webhook after staleAfterMs are looked up in
+// the gateway (retrieveCharge): OK, MISMATCH, or MISSING when the gateway does not know them.
+function reconcilePendingCharges(now = new Date(), staleAfterMs = DAY_MS) {
+  const statusOf = p => (p.reconciliation && p.reconciliation.status) || 'PENDING';
+  const stale = db.getPayments().filter(p => statusOf(p) === 'PENDING' && now - new Date(p.createdAt) >= staleAfterMs);
+  stale.forEach(payment => {
+    const remote = payment.providerChargeId ? payments.retrieveCharge(payment.providerChargeId) : null;
+    if (!remote) {
+      setReconciliation(payment, { status: 'MISSING', detail: 'La pasarela no tiene este cobro.', source: 'job' }, now);
+      return;
+    }
+    applyEventToPendingCharge(payment, remote, now);
+    const mismatches = chargeMismatches(payment, remote);
+    setReconciliation(payment, { status: mismatches.length ? 'MISMATCH' : 'OK', detail: mismatches.join(' · ') || null, source: 'job' }, now);
+  });
+  return stale.map(p => p.id);
 }
 
 // El proveedor simulado entrega su webhook firmado en el acto, por la misma verificación que usa el endpoint.
@@ -549,7 +602,7 @@ function paymentsReport() {
     byMonth[month].feeCOP += p.feeCOP;
     byMonth[month].netCOP += p.netCOP;
   });
-  const reconciliation = { OK: 0, PENDING: 0, MISMATCH: 0 };
+  const reconciliation = { OK: 0, PENDING: 0, MISMATCH: 0, MISSING: 0 };
   all.forEach(p => { reconciliation[p.reconciliation.status] = (reconciliation[p.reconciliation.status] || 0) + 1; });
   return {
     feeRate: config.PAYMENT_FEE_RATE,
@@ -577,6 +630,7 @@ module.exports = {
   resumeDuePauses,
   runInvoiceRetries,
   processPaymentWebhook,
+  reconcilePendingCharges,
   pause,
   resume,
   changePlan,
