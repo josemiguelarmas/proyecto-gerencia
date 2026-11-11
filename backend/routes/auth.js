@@ -8,6 +8,7 @@ const mail = require('../mail');
 const { sendJson, parseJsonBody } = require('../lib/http');
 const { publicUser, sendVerificationEmail } = require('../lib/accounts');
 const rateLimit = require('../lib/rateLimit');
+const validate = require('../lib/validate');
 
 // Edad cumplida a partir de una fecha YYYY-MM-DD. Devuelve null si la fecha no es válida.
 function ageFromBirthDate(birthDate, now = new Date()) {
@@ -25,6 +26,9 @@ async function register({ req, res }) {
   const { name, email, password, birthDate, acceptedPolicy, policyVersion } = await parseJsonBody(req);
   if (!name || !email || !password || !birthDate) {
     return sendJson(res, 400, { error: 'Nombre, correo, fecha de nacimiento y contraseña son obligatorios.' });
+  }
+  if (!validate.isEmail(email)) {
+    return sendJson(res, 400, { error: 'Escribe un correo válido, por ejemplo nombre@correo.com.', code: 'INVALID_EMAIL' });
   }
   // HU-02: sin consentimiento explícito no se crea la cuenta
   if (acceptedPolicy !== true || !policyVersion) {

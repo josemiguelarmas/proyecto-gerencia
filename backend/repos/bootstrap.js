@@ -9,6 +9,7 @@ const env = require('../config/env');
 const store = require('./store');
 const profiles = require('./profiles');
 const { hashPassword, newId } = require('../lib/crypto');
+const { passwordProblem } = require('../lib/validate');
 
 const DEMO_CLIENT_EMAIL = 'demo@theclothesbox.co';
 
@@ -31,6 +32,11 @@ function seedPrivilegedUsers(data, source = env) {
     const password = source[account.passwordVar] || '';
     if (!email || !password) return;
     if (data.users.some(u => u.email.toLowerCase() === email)) return;
+    const problem = passwordProblem(password);
+    if (problem) {
+      console.warn(`[The Clothes Box] No se creó la cuenta ${account.role} (${account.passwordVar}): ${problem}`);
+      return;
+    }
     const user = {
       id: data.users.some(u => u.id === account.id) ? newId('usr') : account.id,
       name: account.name,

@@ -294,3 +294,52 @@ test('WAREHOUSE entra a despacho pero no al resto del panel; STYLIST no entra a 
   const admin = await app.loginAs('ADMIN');
   assert.equal((await app.get('/api/admin/dispatch', admin)).status, 200);
 });
+
+// ---------- Validators and mass assignment ----------
+
+test('validate: correo, política de contraseña, rangos, enumeraciones y pick', () => {
+  const v = require('../backend/lib/validate');
+  assert.equal(v.isEmail('nombre@correo.com'), true);
+  ['not-an-email', 'a@b', '@correo.com', 'a b@c.co', '', null].forEach(x => assert.equal(v.isEmail(x), false, String(x)));
+  assert.equal(v.passwordProblem('clave123'), null);
+  assert.match(v.passwordProblem('abc12'), /8 caracteres/);
+  assert.match(v.passwordProblem('solamenteletras'), /letras y números/);
+  assert.match(v.passwordProblem('12345678'), /letras y números/);
+  assert.equal(v.isIntInRange(5, 1, 5), true);
+  assert.equal(v.isIntInRange(6, 1, 5), false);
+  assert.equal(v.isIntInRange(2.5, 1, 5), false);
+  assert.equal(v.isOneOf('estilo', ['esencial', 'estilo']), true);
+  assert.equal(v.isOneOf('premium', ['esencial', 'estilo']), false);
+  assert.deepEqual(v.pick({ a: 1, b: 2, role: 'ADMIN', c: undefined }, ['a', 'c']), { a: 1 });
+});
+
+test('una contraseña débil en las variables de entorno no crea la cuenta privilegiada', () => {
+  const { seedPrivilegedUsers } = require('../backend/repos/bootstrap');
+  const data = { users: [] };
+  assert.deepEqual(seedPrivilegedUsers(data, { ADMIN_EMAIL: 'a@tcb.co', ADMIN_PASSWORD: 'corta' }), []);
+});
+
+test('el registro rechaza "not-an-email" con 400', async () => {
+  const res = await app.post('/api/auth/register', registration('not-an-email'));
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, 'INVALID_EMAIL');
+});
+
+test('PUT /api/profile ignora campos no permitidos (asignación masiva)', async () => {
+  const c = await newClient();
+  const res = await app.put('/api/profile', {
+    styles: ['urbano'], occasions: ['clase'], fit: 'regular', line: 'u', risk: 1, plan: 'esencial',
+    measures: { height: 170, weight: 65, build: 'media', usual: 'M' },
+    role: 'ADMIN', userId: 'usr_otro', version: 99, attributeWeights: { style: { urbano: 9 } }, learningRevision: 50
+  }, c.token);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.profile.userId, c.userId);
+  assert.equal(res.body.profile.role, undefined);
+  assert.equal(res.body.profile.version, undefined);
+  assert.equal(res.body.profile.attributeWeights, undefined);
+  assert.equal(res.body.profile.learningRevision, undefined);
+  assert.deepEqual(res.body.profile.styles, ['urbano']);
+  const me = await app.get('/api/auth/me', c.token);
+  assert.equal(me.body.user.role, 'CLIENT');
+  assert.equal((await app.get('/api/admin/metrics', c.token)).status, 403);
+});

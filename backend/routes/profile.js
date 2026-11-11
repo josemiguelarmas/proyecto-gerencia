@@ -4,6 +4,16 @@
 const { db } = require('../database');
 const { sendJson, parseJsonBody } = require('../lib/http');
 const { createCuratedBox } = require('../lib/boxes');
+const { pick } = require('../lib/validate');
+
+// F5: campos que el suscriptor puede escribir. Todo lo demás (userId, version, done, pesos
+// aprendidos por el motor, fechas, rol...) lo maneja el servidor y se ignora si llega en el body.
+// Los campos del bloque "medidas" de profileView (heightCm, weightKg, ...) se aceptan tal como
+// hoy; unificarlos con measures es trabajo del stream B.
+const PROFILE_FIELDS = [
+  'styles', 'occasions', 'fit', 'line', 'risk', 'plan', 'measures', 'address', 'styleWeights',
+  'heightCm', 'weightKg', 'bodyBuild', 'fitPreference', 'usualSizeTop', 'usualSizeBottom', 'referenceGarment'
+];
 
 function getProfile({ res, authUser }) {
   const profile = db.getProfile(authUser.id);
@@ -11,7 +21,9 @@ function getProfile({ res, authUser }) {
 }
 
 async function saveProfile({ req, res, authUser }) {
-  const { source, ...body } = await parseJsonBody(req);
+  const raw = await parseJsonBody(req);
+  const source = raw.source;
+  const body = pick(raw, PROFILE_FIELDS);
 
   // HU-03: completar el quiz crea una nueva versión del perfil de estilo y cierra la sesión del quiz.
   let quizSession = null;

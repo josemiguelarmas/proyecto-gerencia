@@ -5,7 +5,7 @@ const config = require('./config');
 const mail = require('./mail');
 const billing = require('./billing');
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const { EMAIL_RE } = require('./lib/validate');
 
 function httpError(status, message, extra = {}) {
   const err = new Error(message);
