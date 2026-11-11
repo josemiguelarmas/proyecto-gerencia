@@ -2,10 +2,11 @@
 const { db } = require('./database');
 const mail = require('./mail');
 const config = require('./config');
+const clock = require('./lib/clock');
 
 // HU-10: recuerda calificar las cajas entregadas hace REVIEW_REMINDER_DAYS días o más
 // que siguen sin calificar. reminderSentAt evita enviar el recordatorio dos veces.
-function runReviewReminders(now = new Date()) {
+function runReviewReminders(now = clock.now()) {
   const thresholdMs = config.REVIEW_REMINDER_DAYS * 86400000;
   const sent = [];
 

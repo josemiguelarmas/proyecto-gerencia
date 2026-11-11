@@ -124,13 +124,13 @@ http://localhost:3000
 ```
 
 ### Ejecutar las Pruebas Automatizadas del Backend (70 al cierre del Sprint 2)
-```bash
-npm test
-# o directamente:
-node tests/api.test.js
+```powershell
+npm test                               # node --test tests/ (todos los archivos *.test.js)
+node tests/api.test.js                 # solo la suite histórica de 70 pruebas
+node --test tests/foundation.test.js   # un solo archivo
 ```
 
-Las pruebas levantan el servidor en el puerto 3199 sobre copias temporales de la base, el catálogo y la bandeja de salida, así que no modifican `backend/data/`. Si una falla, el proceso termina con código 1. El detalle de cada prueba por HU está en `EVIDENCIAS_SPRINT2.md`.
+`npm test` usa el runner nativo `node:test`: cada archivo `tests/*.test.js` corre en su propio proceso y, si alguno falla, el comando termina con código distinto de 0. `tests/api.test.js` (70 pruebas con `assert`) se conserva y levanta el servidor en el puerto 3199 sobre copias temporales de la base, el catálogo y la bandeja de salida, así que no modifica `backend/data/`. Las pruebas nuevas usan `tests/helpers/`: `server.js` (servidor en un puerto efímero con su propia carpeta de datos temporal), `http.js` (cliente JSON) y `clock.js` (reloj inyectable sobre `backend/lib/clock.js`). El detalle de cada prueba por HU está en `EVIDENCIAS_SPRINT2.md`.
 
 Salida de las 15 pruebas originales del Sprint 1:
 ```text

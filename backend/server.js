@@ -76,7 +76,7 @@ function startServer(port = PORT) {
   return new Promise((resolve) => {
     server.listen(port, () => {
       startJobs();
-      console.log(`[The Clothes Box] Backend Full-Stack corriendo en http://localhost:${port}`);
+      console.log(`[The Clothes Box] Backend Full-Stack corriendo en http://localhost:${server.address().port}`);
       resolve(server);
     });
   });
