@@ -1,0 +1,5 @@
+sku,marca,nombre,categoria,estilo,ocasion,talla,color,precio_mayorista,stock,precio_venta,ciudad,corte,tejido,linea,imagen_url
+TALLER-SOBRE-S,Taller Prueba,Sobrecamisa Dril Prueba,capa,urbano|minimal,clase,S,Verde oliva,52000,4,149000,Cali,holgado,"Dril 100% algodón, prelavado",u,
+TALLER-SOBRE-M,Taller Prueba,Sobrecamisa Dril Prueba,capa,urbano|minimal,clase,M,Verde oliva,52000,6,149000,Cali,holgado,"Dril 100% algodón, prelavado",u,
+,Taller Prueba,Pantalón Recto Prueba,bottom,clasico,entrevista,L,"Gris ""carbón""","$61.000",3,,Cali,regular,Gabardina,u,
+PROD-01-M-LADRILLO-LAVADO,Mono Textil,Camiseta Boxy Heavyweight 260g,top,urbano|retro,clase|fiesta,M,Ladrillo lavado,25000,12,79900,Cali,holgado,,u,

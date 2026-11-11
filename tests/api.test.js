@@ -498,10 +498,11 @@ async function runPrompt2Tests({ token, adminToken, stylistToken, deliveredBox }
   ].join('\n');
   const importRes = await request('POST', '/api/admin/products/import', { csv }, adminToken);
   assert.strictEqual(importRes.status, 200);
-  assert.strictEqual(importRes.body.imported, 3);
+  assert.strictEqual(importRes.body.imported, 2);
+  assert.strictEqual(importRes.body.updated, 1);
   assert.strictEqual(importRes.body.rejected, 2);
   assert.deepStrictEqual(importRes.body.errors.map(e => e.row), [5, 6]);
-  assert.ok(/Talla/.test(importRes.body.errors[0].reason) && /Categoría/.test(importRes.body.errors[1].reason));
+  assert.ok(/Talla/.test(importRes.body.errors[0].message) && /Categoría/.test(importRes.body.errors[1].message));
   assert.strictEqual(importRes.body.createdProducts.length, 1);
   const imported = db.catalog.find(p => p.name === 'Camisa Prueba CSV');
   assert.deepStrictEqual(imported.variants.map(v => [v.size, v.stock]), [['M', 4], ['L', 2]]);

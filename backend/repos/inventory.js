@@ -13,7 +13,8 @@
 //   restock  - return re-entry or new units: stock += qty.
 //   setStock - admin correction to an absolute stock ({ stock } instead of qty); it cannot go
 //              below the reserved units.
-// Movement shape: { id, type: RESERVE|RELEASE|CONSUME|RESTOCK|ADJUST, productId, sku, size,
+//   recordImport - used by the CSV import route only (type IMPORT).
+// Movement shape: { id, type: RESERVE|RELEASE|CONSUME|RESTOCK|ADJUST|IMPORT, productId, sku, size,
 // color, qty, stockBefore, stockAfter, reservedBefore, reservedAfter, reason, refId, at }.
 const store = require('./store');
 const { httpError } = require('../lib/http');
@@ -115,8 +116,32 @@ function setStock(params) {
   return move('ADJUST', target, { stockDelta: params.stock - variant.stock, qty: params.stock - variant.stock });
 }
 
+// Records the stock a catalog CSV import set on each variant (type IMPORT). The importer has
+// already changed the variants; this keeps the change traceable with one database write.
+function recordImport(changes, { refId = null, now = new Date() } = {}) {
+  changes.forEach(({ product, variant, before }) => {
+    store.data.inventoryMovements.push({
+      id: newId('inv'),
+      type: 'IMPORT',
+      productId: product.id,
+      sku: variant.sku,
+      size: variant.size,
+      color: variant.color,
+      qty: variant.stock - before,
+      stockBefore: before,
+      reservedBefore: variant.reserved,
+      reason: 'Importación de catálogo CSV',
+      refId,
+      at: now.toISOString(),
+      stockAfter: variant.stock,
+      reservedAfter: variant.reserved
+    });
+  });
+  if (changes.length) store.save();
+}
+
 function listMovements({ sku, productId } = {}) {
   return store.data.inventoryMovements.filter(m => (!sku || m.sku === sku) && (!productId || m.productId === productId));
 }
 
-module.exports = { findVariant, reserve, release, consume, restock, setStock, listMovements };
+module.exports = { findVariant, reserve, release, consume, restock, setStock, recordImport, listMovements };

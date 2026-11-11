@@ -144,6 +144,7 @@ TCB.api = (() => {
       products: () => request('/api/admin/products'),
       saveProduct: data => request('/api/admin/products', { method: 'POST', body: data }),
       importProducts: csv => request('/api/admin/products/import', { method: 'POST', body: { csv } }),
+      importCatalogCsv: csv => request('/api/admin/catalog/import', { method: 'POST', body: csv, headers: { 'Content-Type': 'text/csv; charset=utf-8' } }),
       generateBatch: () => request('/api/admin/boxes/generate-batch', { method: 'POST' }),
       boxes: () => request('/api/admin/boxes'),
       updateBoxStatus: (boxId, status) => request(`/api/admin/boxes/${boxId}/status`, { method: 'POST', body: { status } }),

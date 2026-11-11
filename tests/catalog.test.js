@@ -106,3 +106,88 @@ test('SCRUM-38 Escenario: una prenda sin unidades disponibles nunca es seleccion
   target.deletedAt = new Date().toISOString();
   assert.ok(!engine.curateBox(PROFILE, catalog).itemIds.includes(target.id), 'una prenda eliminada no se elige');
 });
+
+// ---------------------------------------------------------------- SCRUM-39 CSV import
+
+const fixture = name => fs.readFileSync(path.join(__dirname, 'fixtures', name), 'utf8');
+
+// The CSV goes as the raw request body, the way a brand's file is uploaded.
+async function postCsv(csv, token = admin, contentType = 'text/csv; charset=utf-8') {
+  const res = await fetch(`${app.baseUrl}/api/admin/catalog/import`, {
+    method: 'POST',
+    headers: { 'Content-Type': contentType, Authorization: `Bearer ${token}` },
+    body: csv
+  });
+  return { status: res.status, body: await res.json() };
+}
+
+test('SCRUM-39 Escenario: un administrador autenticado sube un CSV válido y las prendas quedan disponibles', async () => {
+  const res = await postCsv(fixture('catalog-good.csv'));
+  assert.equal(res.status, 200);
+  assert.equal(res.body.imported, 3);
+  assert.equal(res.body.updated, 1);
+  assert.deepEqual(res.body.errors, []);
+
+  const sobre = store.catalog.find(p => p.name === 'Sobrecamisa Dril Prueba');
+  assert.equal(sobre.fabric, 'Dril 100% algodón, prelavado', 'campo entre comillas con coma');
+  assert.deepEqual(sobre.variants.map(v => [v.sku, v.size, v.stock, v.reserved, v.wholesalePrice, v.retailPrice]),
+    [['TALLER-SOBRE-S', 'S', 4, 0, 52000, 149000], ['TALLER-SOBRE-M', 'M', 6, 0, 52000, 149000]]);
+  const recto = store.catalog.find(p => p.name === 'Pantalón Recto Prueba');
+  assert.equal(recto.variants[0].color, 'Gris "carbón"', 'comillas dobles escapadas');
+  assert.equal(recto.variants[0].wholesalePrice, 61000);
+  assert.match(recto.variants[0].sku, /^PROD-\d+-L-GRIS-CARBON$/, 'sku generado cuando la marca no lo envía');
+  assert.equal(inventory.findVariant({ sku: 'PROD-01-M-LADRILLO-LAVADO' }).variant.stock, 12, 'upsert por sku');
+
+  const publicList = await app.get('/api/products');
+  assert.ok(publicList.body.some(p => p.id === sobre.id), 'la prenda importada está en el catálogo público');
+  assert.ok(inventory.listMovements({ sku: 'TALLER-SOBRE-M' }).some(m => m.type === 'IMPORT' && m.stockAfter === 6), 'el stock importado queda en movimientos');
+});
+
+test('SCRUM-39 upsert: volver a subir el mismo archivo actualiza por sku y no duplica variantes', async () => {
+  const before = store.catalog.length;
+  const res = await postCsv(fixture('catalog-good.csv'));
+  assert.equal(res.status, 200);
+  assert.equal(res.body.imported, 0);
+  assert.equal(res.body.updated, 4);
+  assert.equal(store.catalog.length, before);
+  assert.equal(store.catalog.find(p => p.name === 'Sobrecamisa Dril Prueba').variants.length, 2);
+});
+
+test('SCRUM-39 Escenario: el CSV tiene filas con errores y el administrador ve el reporte por fila y campo', async () => {
+  const res = await postCsv(fixture('catalog-mixed.csv'));
+  assert.equal(res.status, 200);
+  assert.equal(res.body.imported, 2, 'las filas válidas se importan aunque otras fallen');
+  assert.equal(res.body.updated, 0);
+  assert.deepEqual(res.body.errors.map(e => [e.row, e.field]), [[3, 'talla'], [4, 'estilo'], [4, 'stock'], [5, 'sku'], [7, 'sku']]);
+  res.body.errors.forEach(e => assert.ok(typeof e.message === 'string' && e.message.length > 10));
+  assert.match(res.body.errors[3].message, /ya pertenece/);
+  const mixed = store.catalog.find(p => p.name === 'Camisa Mixta Prueba');
+  assert.deepEqual(mixed.variants.map(v => [v.sku, v.stock]), [['MIX-CAMISA-M', 5], ['MIX-CAMISA-S', 2]]);
+  assert.equal(inventory.findVariant({ sku: 'PROD-02-M-ARENA-NATURAL' }).product.id, 'prod-02', 'el sku ajeno no se toca');
+});
+
+test('SCRUM-39 archivo malformado: comillas sin cerrar o columnas faltantes se rechazan sin cambiar el catálogo', async () => {
+  const snapshot = JSON.stringify(store.catalog);
+  const bad = await postCsv(fixture('catalog-malformed.csv'));
+  assert.equal(bad.status, 400);
+  assert.match(bad.body.error, /comillas sin cerrar/);
+  assert.deepEqual(bad.body.errors.map(e => [e.row, e.field]), [[3, null]]);
+  const noColumns = await postCsv('marca,nombre\nX,Y\n');
+  assert.equal(noColumns.status, 400);
+  assert.ok(noColumns.body.errors.some(e => e.field === 'precio_mayorista'));
+  assert.equal((await postCsv('')).status, 400);
+  assert.equal(JSON.stringify(store.catalog), snapshot);
+});
+
+test('SCRUM-39 seguridad: solo el administrador importa y el cuerpo debe ser text/csv', async () => {
+  assert.equal((await postCsv(fixture('catalog-good.csv'), await app.loginAs('CLIENT'))).status, 403);
+  assert.equal((await postCsv(fixture('catalog-good.csv'), admin, 'application/json')).status, 415);
+});
+
+test('SCRUM-39 CSV de Excel en español separado por punto y coma', async () => {
+  const csv = 'sku;marca;nombre;categoria;estilo;ocasion;talla;color;precio_mayorista;stock\nPYC-01;Taller Prueba;Falda Punto y Coma;bottom;retro|clasico;fiesta;S;Vino;40.000;3\n';
+  const res = await postCsv(csv);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.imported, 1);
+  assert.deepEqual(inventory.findVariant({ sku: 'PYC-01' }).product.styles, ['retro', 'clasico']);
+});

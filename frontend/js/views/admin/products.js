@@ -6,6 +6,24 @@ TCB.adminTabs = TCB.adminTabs || {};
 TCB.adminTabs.products = (() => {
   const { cop } = TCB.adminFormat;
 
+  // Text coming from CSV files or forms is escaped before it goes into innerHTML.
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+
+  function renderImportReport(res) {
+    const errors = res.errors || [];
+    return `
+      ${res.error ? `<p class="small error">${esc(res.error)}</p>` : ''}
+      <p class="small"><strong>${res.imported || 0}</strong> variantes nuevas · <strong>${res.updated || 0}</strong> actualizadas · <strong>${errors.length}</strong> errores${res.createdProducts ? ` · ${res.createdProducts.length} prendas nuevas` : ''}</p>
+      ${res.ignoredColumns && res.ignoredColumns.length ? `<p class="small muted">Columnas ignoradas: ${esc(res.ignoredColumns.join(', '))}</p>` : ''}
+      ${errors.length ? `
+        <table class="returns-history-table" style="margin-top:8px">
+          <thead><tr><th>Fila</th><th>Campo</th><th>Problema</th></tr></thead>
+          <tbody>${errors.map(e => `<tr><td class="mono">${esc(e.row)}</td><td class="mono">${esc(e.field || 'fila completa')}</td><td>${esc(e.message)}</td></tr>`).join('')}</tbody>
+        </table>
+      ` : ''}
+    `;
+  }
+
   // PESTAÑA 3: CATÁLOGO DE PRODUCTOS (FOTOGRAFÍAS REALES DE MARCAS COLOMBIANAS)
   function renderProductsTab(products) {
     return `
@@ -21,7 +39,8 @@ TCB.adminTabs.products = (() => {
         <section style="background:var(--sheet);border:var(--line);padding:18px;margin-bottom:20px;border-radius:var(--r-1)">
           <h3 style="font-weight:700">Importar catálogo (CSV)</h3>
           <p class="small muted" style="margin-top:4px">
-            Una fila por variante. Columnas: marca, nombre, categoria, estilo, ocasion, talla, color, precio_mayorista, stock.
+            Una fila por variante (talla y color). Columnas obligatorias: marca, nombre, categoria, estilo, ocasion, talla, color, precio_mayorista, stock.
+            Opcionales: sku, precio_venta, ciudad, tipo, corte, tejido, linea, imagen_url. Si el sku ya existe, la fila actualiza esa variante.
             Varios estilos u ocasiones se separan con |. <a href="/docs/ejemplo_catalogo.csv" download>Descargar ejemplo</a>
           </p>
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">
@@ -72,20 +91,12 @@ TCB.adminTabs.products = (() => {
         return;
       }
       try {
-        const res = await TCB.api.admin.importProducts(await file.text());
+        const res = await TCB.api.admin.importCatalogCsv(await file.text());
         await ctx.loadAdminData();
         ctx.rerender();
-        document.querySelector('#import-report').innerHTML = `
-          <p class="small"><strong>${res.imported}</strong> filas importadas · <strong>${res.rejected}</strong> con error · ${res.createdProducts.length} prendas nuevas · ${res.updatedProducts.length} actualizadas</p>
-          ${res.errors.length ? `
-            <table class="returns-history-table" style="margin-top:8px">
-              <thead><tr><th>Fila</th><th>Motivo</th></tr></thead>
-              <tbody>${res.errors.map(e => `<tr><td class="mono">${e.row}</td><td>${e.reason}</td></tr>`).join('')}</tbody>
-            </table>
-          ` : ''}
-        `;
+        document.querySelector('#import-report').innerHTML = renderImportReport(res);
       } catch (e) {
-        reportEl.innerHTML = `<p class="small error">${e.message}</p>`;
+        reportEl.innerHTML = e.data ? renderImportReport(e.data) : `<p class="small error">${esc(e.message)}</p>`;
       }
     });
   }

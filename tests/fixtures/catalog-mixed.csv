@@ -1,0 +1,7 @@
+sku,marca,nombre,categoria,estilo,ocasion,talla,color,precio_mayorista,stock
+MIX-CAMISA-M,Taller Mixto,Camisa Mixta Prueba,top,minimal,clase,M,Blanco,35000,5
+MIX-CAMISA-XXXL,Taller Mixto,Camisa Mixta Prueba,top,minimal,clase,XXXL,Blanco,35000,5
+MIX-CAMISA-L,Taller Mixto,Camisa Mixta Prueba,top,gotico,clase,L,Blanco,35000,-2
+PROD-02-M-ARENA-NATURAL,Taller Mixto,Camisa Mixta Prueba,top,minimal,clase,M,Arena natural,35000,5
+MIX-CAMISA-S,Taller Mixto,Camisa Mixta Prueba,top,minimal,clase,S,Blanco,35000,2
+MIX-CAMISA-S,Taller Mixto,Camisa Mixta Prueba,top,minimal,clase,S,Blanco,35000,9
