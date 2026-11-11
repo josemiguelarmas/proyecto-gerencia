@@ -43,7 +43,7 @@ TCB.views.box = (() => {
       `;
     }
 
-    const isSealed = (box.status === 'PREPARING' || box.status === 'SHIPPED');
+    const isSealed = ['PROPOSED', 'REJECTED', 'APPROVED', 'PREPARING', 'SHIPPED'].includes(box.status);
     const isDelivered = (box.status === 'DELIVERED' || box.status === 'RATED');
     const isUnboxed = box.unboxed === true;
 
@@ -99,8 +99,20 @@ TCB.views.box = (() => {
 
   // ESTADO 1: CAJA EN PREPARACIÓN O EN CAMINO (SELLADA - REGLA DE SORPRESA ABSOLUTA)
   function renderSealedState(box) {
+    const isCurating = box.status === 'PROPOSED' || box.status === 'REJECTED';
+    const isApproved = box.status === 'APPROVED';
     const isPrep = box.status === 'PREPARING';
     const isShip = box.status === 'SHIPPED';
+    const title = isCurating ? 'Tu estilista está revisando tu selección'
+      : isApproved ? 'Tu caja está lista para despacho'
+      : isPrep ? 'Tu caja se está preparando en Cali' : 'Tu caja va en camino a tu puerta';
+    const message = isCurating
+      ? 'El motor armó una propuesta con prendas en stock en tu talla y una estilista la está revisando antes de empacarla.'
+      : isApproved
+      ? 'Tu estilista aprobó la selección. En breve la empacamos y sellamos para enviarla.'
+      : isPrep
+      ? 'Nuestro equipo está empaquetando prendas de marcas locales independientes (Ceiba Estudio, Mono Textil, Taller Norte) calibradas a tus medidas. Las prendas son sorpresa hasta que recibas la caja.'
+      : 'El transportador ya tiene tu caja sellada. La sorpresa se mantendrá intacta hasta que abras el paquete en tu domicilio.';
 
     return `
       <section class="sealed-box-hero" aria-label="Caja Sellada">
@@ -113,22 +125,19 @@ TCB.views.box = (() => {
         </div>
 
         <h2 class="display" style="font-size:clamp(var(--fs-2xl), 4vw, var(--fs-4xl))">
-          ${isPrep ? 'Tu caja se está preparando en Cali' : 'Tu caja va en camino a tu puerta'}
+          ${title}
         </h2>
         <p class="muted" style="max-width:540px;margin:var(--s-3) auto 0;font-size:var(--fs-base)">
-          ${isPrep 
-            ? 'Nuestro equipo está empaquetando prendas de marcas locales independientes (Ceiba Estudio, Mono Textil, Taller Norte) calibradas a tus medidas. Las prendas son sorpresa hasta que recibas la caja.'
-            : 'El transportador ya tiene tu caja sellada. La sorpresa se mantendrá intacta hasta que abras el paquete en tu domicilio.'
-          }
+          ${message}
         </p>
 
         <!-- LÍNEA DE SEGUIMIENTO REAL -->
         <div class="tracking-bar" style="margin-top:var(--s-6)">
-          <div class="tracking-node is-done">
+          <div class="tracking-node ${isCurating || isApproved ? 'is-current' : 'is-done'}">
             <p class="mono small">01</p>
-            <p>Curaduría y patronaje</p>
+            <p>${isApproved ? 'Lista para despacho' : 'Curaduría y patronaje'}</p>
           </div>
-          <div class="tracking-node ${isPrep ? 'is-current' : 'is-done'}">
+          <div class="tracking-node ${isPrep ? 'is-current' : isShip ? 'is-done' : ''}">
             <p class="mono small">02</p>
             <p>Empaque y sellado</p>
           </div>
@@ -138,11 +147,12 @@ TCB.views.box = (() => {
           </div>
         </div>
 
-        <!-- DETALLES DE GUÍA -->
+        <!-- DETALLES DE GUÍA (HU-09: guía del operador logístico SIMULADO) -->
         <div style="display:inline-flex;gap:24px;background:var(--paper-2);border:var(--hair);padding:14px 24px;border-radius:var(--r-1);margin-top:var(--s-5);text-align:left;flex-wrap:wrap">
           <div>
             <p class="small muted">Guía de rastreo</p>
-            <p class="mono" style="font-weight:700">${box.trackingNumber || 'TCB-CALI-7829-X'}</p>
+            <p class="mono" style="font-weight:700">${box.trackingNumber || 'Se asigna al despachar'}</p>
+            ${box.carrier ? `<p class="small muted">${box.carrier}</p>` : ''}
           </div>
           <div>
             <p class="small muted">Prendas incluidas</p>
@@ -150,9 +160,20 @@ TCB.views.box = (() => {
           </div>
           <div>
             <p class="small muted">Entrega estimada</p>
-            <p style="font-weight:600">${box.estimatedDelivery || 'Hoy antes de las 6:00 PM'}</p>
+            <p style="font-weight:600">${box.estimatedDelivery ? new Date(box.estimatedDelivery).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' }) : 'Se calcula al despachar'}</p>
           </div>
         </div>
+
+        ${(box.trackingEvents || []).length ? `
+          <ol class="small" style="list-style:none;padding:0;margin:var(--s-4) auto 0;max-width:420px;text-align:left">
+            ${box.trackingEvents.map(e => `
+              <li style="display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:var(--hair)">
+                <span>${e.label}</span>
+                <span class="muted mono">${new Date(e.at).toLocaleString('es-CO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+              </li>
+            `).join('')}
+          </ol>
+        ` : ''}
 
         <div style="margin-top:var(--s-6)">
           <p class="small muted">
@@ -300,6 +321,12 @@ TCB.views.box = (() => {
             ${item.story || 'Confección nacional con acabados de alta resistencia.'}
           </p>
 
+          ${item.recommendation ? `
+            <p class="small" style="border-left:3px solid var(--brand-box);padding-left:10px;line-height:1.45">
+              <strong>Por qué te la elegimos:</strong> ${item.recommendation.explanation}
+            </p>
+          ` : ''}
+
           <div style="background:var(--paper-2);padding:10px 14px;border:var(--hair);border-radius:var(--r-1);font-size:var(--fs-xs);display:grid;gap:4px">
             <div><strong>Tejido:</strong> ${item.fabric}</div>
             <div><strong>Corte:</strong> ${item.fit?.levelText ? `${item.fit.levelText} (${item.fit.fit || 'Regular'})` : (item.fit || 'Regular')}</div>
@@ -314,7 +341,7 @@ TCB.views.box = (() => {
             ${userRating ? `
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
                 <span class="badge badge--accent" style="font-size:11px">
-                  ${icon('star', 12)} ${userRating.score}/5 ${userRating.liked ? '· Te gustó' : '· No es tu estilo'}
+                  ${icon('star', 12)} ${userRating.fitScore ? `Ajuste ${userRating.fitScore}/5` : ''}${userRating.fitScore && userRating.styleScore ? ' · ' : ''}${userRating.styleScore ? `Estilo ${userRating.styleScore}/5` : ''}${!userRating.fitScore && !userRating.styleScore ? `${userRating.score}/5` : ''} ${userRating.liked ? '· Te gustó' : '· No es tu estilo'}
                 </span>
                 <span class="small muted" style="font-size:11px">Feedback registrado</span>
               </div>
@@ -391,17 +418,19 @@ TCB.views.box = (() => {
               </div>
             </div>
 
-            <!-- Calificación con estrellas -->
-            <div class="field">
-              <label for="fb-score">Calificación general (1 a 5 estrellas)</label>
-              <select class="input" id="fb-score" name="score">
-                <option value="5" ${existingRating.score === 5 || !existingRating.score ? 'selected' : ''}>★★★★★ Excelente selección</option>
-                <option value="4" ${existingRating.score === 4 ? 'selected' : ''}>★★★★☆ Buena prenda</option>
-                <option value="3" ${existingRating.score === 3 ? 'selected' : ''}>★★★☆☆ Aceptable</option>
-                <option value="2" ${existingRating.score === 2 ? 'selected' : ''}>★★☆☆☆ Poco afin a mi gusto</option>
-                <option value="1" ${existingRating.score === 1 ? 'selected' : ''}>★☆☆☆☆ No combina conmigo</option>
-              </select>
-            </div>
+            <!-- HU-10: ajuste y estilo se califican por separado; se puede dejar uno sin calificar -->
+            ${[['fitScore', 'Ajuste de la talla'], ['styleScore', 'Estilo de la prenda']].map(([name, label]) => `
+              <div class="field">
+                <label for="fb-${name}">${label} (1 a 5 estrellas)</label>
+                <select class="input" id="fb-${name}" name="${name}">
+                  <option value="">Sin calificar por ahora</option>
+                  ${[5, 4, 3, 2, 1].map(n => `
+                    <option value="${n}" ${existingRating[name] === n ? 'selected' : ''}>${'★'.repeat(n)}${'☆'.repeat(5 - n)} ${n}/5</option>
+                  `).join('')}
+                </select>
+              </div>
+            `).join('')}
+            <p class="error small" id="fb-error" role="alert"></p>
 
             <!-- Etiquetas rápidas de preferencia -->
             <div class="field">
@@ -432,7 +461,12 @@ TCB.views.box = (() => {
         form.addEventListener('submit', async e => {
           e.preventDefault();
           const liked = form.liked.value === 'true';
-          const score = Number(form.score.value);
+          const fitScore = form.fitScore.value ? Number(form.fitScore.value) : undefined;
+          const styleScore = form.styleScore.value ? Number(form.styleScore.value) : undefined;
+          if (fitScore === undefined && styleScore === undefined) {
+            modalEl.querySelector('#fb-error').textContent = 'Califica al menos el ajuste o el estilo.';
+            return;
+          }
           const styleFeedback = form.styleFeedback.value;
           const preferenceNotes = form.preferenceNotes.value.trim();
 
@@ -440,7 +474,8 @@ TCB.views.box = (() => {
             await TCB.api.boxes.itemFeedback(item.boxId, {
               productId: item.id,
               liked,
-              score,
+              fitScore,
+              styleScore,
               styleFeedback,
               preferenceNotes
             });
@@ -491,7 +526,9 @@ TCB.views.box = (() => {
         await TCB.state.loadUserSession();
         TCB.state.toast(res.message || 'Estado de envío actualizado.');
       } catch (e) {
-        TCB.state.toast(e.message || 'Error al simular envío', { type: 'danger' });
+        // HU-09: sin el pago del ciclo la caja no se despacha
+        const hint = e.message === 'Pago no confirmado' ? ' Revisa tu suscripción en Mi Perfil.' : '';
+        TCB.state.toast(`${e.message || 'Error al simular envío'}${hint}`, { type: 'danger' });
       }
     });
 

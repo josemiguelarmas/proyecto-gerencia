@@ -1,4 +1,5 @@
-// Onboarding View (3 Steps: Style, Occasions/Plan, Sizing Measures)
+// Onboarding View (4 Steps: Style, Hidden-style game, Occasions/Plan, Sizing Measures)
+// HU-03: el progreso se guarda en el backend y se retoma al volver a iniciar sesión.
 window.TCB = window.TCB || {};
 TCB.views = TCB.views || {};
 
@@ -14,7 +15,12 @@ TCB.views.onboarding = (() => {
     { id: 'artesanal', name: 'Hecho en Colombia', note: 'Lino puro, tinturas locales, textura viva.', swatches: ['#b7a37f', '#6b7a4f', '#8a4b2e'] }
   ];
 
+  const TOTAL_STEPS = 4;
+  const GAME_ROUNDS = 6;
   let currentStep = 1;
+  let gameRound = 0;
+  let repeatMode = false;
+  let progressCheckedFor = null; // userId cuyo progreso ya se consultó
   let draft = {
     styles: ['urbano', 'minimal'],
     occasions: ['clase'],
@@ -57,42 +63,132 @@ TCB.views.onboarding = (() => {
 
     return `
       <div class="wrap-narrow screen">
-        <div class="wizard-progress" role="progressbar" aria-valuenow="${currentStep}" aria-valuemin="1" aria-valuemax="3">
-          <i class="${currentStep >= 1 ? 'is-done' : ''}"></i>
-          <i class="${currentStep >= 2 ? 'is-done' : ''}"></i>
-          <i class="${currentStep >= 3 ? 'is-done' : ''}"></i>
+        <div class="wizard-progress" role="progressbar" aria-valuenow="${currentStep}" aria-valuemin="1" aria-valuemax="${TOTAL_STEPS}">
+          ${Array.from({ length: TOTAL_STEPS }, (_, i) => `<i class="${currentStep >= i + 1 ? 'is-done' : ''}"></i>`).join('')}
         </div>
 
         <header class="screen-head">
-          <span class="eyebrow">Paso ${currentStep} de 3 · Perfil Personal</span>
+          <span class="eyebrow">Paso ${currentStep} de ${TOTAL_STEPS} · ${repeatMode ? 'Actualizando tu perfil' : 'Perfil Personal'}</span>
           <h1 class="screen-title">
-            ${currentStep === 1 ? '¿Qué estilo te representa?' : currentStep === 2 ? 'Ocasión, corte y presupuesto' : 'Tus medidas para una talla exacta'}
+            ${['¿Qué estilo te representa?', '¿Cuál te pondrías?', 'Ocasión, corte y presupuesto', 'Tus medidas para una talla exacta'][currentStep - 1]}
           </h1>
           <p class="lede">
-            ${currentStep === 1
-              ? 'Elige hasta 3 estilos que encajen contigo. El primero tendrá mayor peso en tus cajas.'
-              : currentStep === 2
-              ? 'Dinos para qué momentos necesitas ropa y qué corte prefieres llevar.'
-              : 'Con 4 datos calculamos tu talla en centímetros contra las tablas de patronaje de cada taller.'}
+            ${[
+              'Elige hasta 3 estilos que encajen contigo. El primero tendrá mayor peso en tus cajas.',
+              `Elige rápido, sin pensarlo mucho. Ronda ${Math.min(gameRound + 1, GAME_ROUNDS)} de ${GAME_ROUNDS}.`,
+              'Dinos para qué momentos necesitas ropa y qué corte prefieres llevar.',
+              'Con 4 datos calculamos tu talla en centímetros contra las tablas de patronaje de cada taller.'
+            ][currentStep - 1]}
           </p>
         </header>
 
         <form id="onboarding-form" novalidate>
           <p class="error small" id="step-error" style="margin-bottom:16px" role="alert"></p>
 
-          ${currentStep === 1 ? renderStep1() : currentStep === 2 ? renderStep2() : renderStep3()}
+          ${currentStep === 1 ? renderStep1() : currentStep === 2 ? renderGame(store) : currentStep === 3 ? renderStep2() : renderStep3()}
 
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:var(--s-7);padding-top:var(--s-5);border-top:var(--hair)">
             ${currentStep > 1
               ? `<button type="button" class="btn btn--quiet" id="btn-back">${icon('arrowL')} Anterior</button>`
               : `<a class="btn btn--quiet" href="#/">Cancelar</a>`}
-            <button type="submit" class="btn btn--gold btn--lg" id="btn-next">
-              ${currentStep === 3 ? `Guardar y armar mi caja ${icon('sparkle')}` : `Continuar ${icon('arrowR')}`}
-            </button>
+            ${currentStep === 2 ? `
+              <button type="button" class="btn btn--ghost" id="btn-skip-game">Saltar juego ${icon('arrowR')}</button>
+            ` : `
+              <button type="submit" class="btn btn--gold btn--lg" id="btn-next">
+                ${currentStep === TOTAL_STEPS ? (repeatMode ? `Guardar nueva versión ${icon('sparkle')}` : `Guardar y armar mi caja ${icon('sparkle')}`) : `Continuar ${icon('arrowR')}`}
+              </button>
+            `}
           </div>
         </form>
       </div>
     `;
+  }
+
+  // HU-03: juego de estilos ocultos. Cada ronda enfrenta dos prendas de estilos distintos.
+  function gamePairs(products) {
+    const byStyle = {};
+    products.forEach(p => {
+      const st = p.styles && p.styles[0];
+      if (st && p.imageUrl) (byStyle[st] = byStyle[st] || []).push(p);
+    });
+    const styles = Object.keys(byStyle);
+    const pairs = [];
+    for (let i = 0; pairs.length < GAME_ROUNDS && styles.length > 1 && i < GAME_ROUNDS * 4; i++) {
+      const a = styles[i % styles.length];
+      const b = styles[(i + 1 + Math.floor(i / styles.length)) % styles.length];
+      if (a === b) continue;
+      const pa = byStyle[a][i % byStyle[a].length];
+      const pb = byStyle[b][(i + 1) % byStyle[b].length];
+      pairs.push([pa, pb]);
+    }
+    return pairs;
+  }
+
+  function styleWeightsFrom(picks, products) {
+    const counts = {};
+    picks.forEach(id => {
+      const p = products.find(x => x.id === id);
+      (p ? p.styles : []).forEach(st => { counts[st] = (counts[st] || 0) + 1; });
+    });
+    const max = Math.max(0, ...Object.values(counts));
+    return Object.fromEntries(Object.entries(counts).map(([st, n]) => [st, Math.round((n / max) * 100) / 100]));
+  }
+
+  function renderGame(store) {
+    const pairs = gamePairs(store.products || []);
+    const pair = pairs[gameRound];
+    if (!pair) return '<p class="muted">Cargando prendas…</p>';
+    return `
+      <div class="grid" style="--cols:1fr 1fr;gap:14px">
+        ${pair.map(p => `
+          <button type="button" class="style-choice" data-game-pick="${p.id}" style="padding:0;overflow:hidden;text-align:left">
+            <img src="${p.imageUrl}" alt="${p.name}" style="width:100%;aspect-ratio:3/4;object-fit:cover;display:block">
+            <span class="small" style="display:block;padding:10px">${p.name}</span>
+          </button>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  async function saveProgress() {
+    try {
+      await TCB.api.quiz.saveProgress({ step: currentStep, answers: { draft, gameRound }, repeat: repeatMode });
+    } catch (e) { /* el progreso es una ayuda; si falla, el quiz sigue */ }
+  }
+
+  // Al entrar con sesión: retoma el progreso guardado o abre una sesión nueva (marca el inicio del tiempo).
+  async function resumeOrStart(userId, rerender) {
+    if (progressCheckedFor === userId) return;
+    progressCheckedFor = userId;
+    try {
+      const { session } = await TCB.api.quiz.progress();
+      if (session && session.answers && session.answers.draft) {
+        draft = { ...draft, ...session.answers.draft };
+        gameRound = session.answers.gameRound || 0;
+        currentStep = session.step;
+        repeatMode = !!session.repeat;
+        TCB.state.toast(`Retomamos tu quiz donde quedaste (paso ${currentStep} de ${TOTAL_STEPS}).`);
+        rerender();
+      } else {
+        saveProgress();
+      }
+    } catch (e) { /* sin progreso guardado */ }
+  }
+
+  // HU-03: repetir el quiz desde el perfil parte de las respuestas actuales y crea una nueva versión.
+  function startRepeat(profile) {
+    if (profile) {
+      ['styles', 'occasions', 'line', 'fit', 'plan', 'risk', 'address', 'measures', 'styleWeights'].forEach(k => {
+        if (profile[k] !== undefined) draft[k] = JSON.parse(JSON.stringify(profile[k]));
+      });
+    }
+    draft.gamePicks = [];
+    currentStep = 1;
+    gameRound = 0;
+    repeatMode = true;
+    progressCheckedFor = TCB.state.get().user?.id || null;
+    saveProgress();
+    window.location.hash = '#/empezar';
   }
 
   function renderStep1() {
@@ -274,6 +370,30 @@ TCB.views.onboarding = (() => {
 
   function mount(root, rerender) {
     const store = TCB.state.get();
+    // app.js llama mount(root, store): el segundo argumento no es una función de re-render.
+    if (typeof rerender !== 'function') rerender = (() => {
+      root.innerHTML = render(TCB.state.get());
+      mount(root);
+    });
+
+    if (store.user) resumeOrStart(store.user.id, rerender);
+
+    root.querySelectorAll('[data-game-pick]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        draft.gamePicks = [...(draft.gamePicks || []), btn.dataset.gamePick];
+        draft.styleWeights = styleWeightsFrom(draft.gamePicks, TCB.state.get().products || []);
+        gameRound++;
+        if (gameRound >= GAME_ROUNDS) currentStep = 3;
+        saveProgress();
+        rerender();
+      });
+    });
+
+    root.querySelector('#btn-skip-game')?.addEventListener('click', () => {
+      currentStep = 3;
+      saveProgress();
+      rerender();
+    });
 
     // Trigger register / login if unauthenticated
     root.querySelector('#btn-onboard-register')?.addEventListener('click', () => {
@@ -302,6 +422,10 @@ TCB.views.onboarding = (() => {
     root.querySelector('#btn-back')?.addEventListener('click', () => {
       if (currentStep > 1) {
         currentStep--;
+        if (currentStep === 2) {
+          gameRound = 0;
+          draft.gamePicks = [];
+        }
         rerender();
       }
     });
@@ -318,10 +442,11 @@ TCB.views.onboarding = (() => {
           return;
         }
         currentStep = 2;
+        saveProgress();
         return rerender();
       }
 
-      if (currentStep === 2) {
+      if (currentStep === 3) {
         const occEls = [...root.querySelectorAll('input[name="occ"]:checked')];
         draft.occasions = occEls.map(x => x.value);
         if (draft.occasions.length === 0) {
@@ -337,11 +462,12 @@ TCB.views.onboarding = (() => {
         const addrEl = root.querySelector('#f-address');
         if (addrEl) draft.address = addrEl.value.trim();
 
-        currentStep = 3;
+        currentStep = 4;
+        saveProgress();
         return rerender();
       }
 
-      if (currentStep === 3) {
+      if (currentStep === 4) {
         const h = Number(root.querySelector('#m-height').value);
         const w = Number(root.querySelector('#m-weight').value);
         if (!h || h < 140 || h > 220) {
@@ -369,11 +495,28 @@ TCB.views.onboarding = (() => {
 
         try {
           // LLAMADA AL BACKEND REAL: PUT /api/profile
-          await TCB.api.profile.save(draft);
+          const { gamePicks, ...profileData } = draft;
+          const res = await TCB.api.profile.save({ ...profileData, source: 'quiz' });
           await TCB.state.loadUserSession();
-          TCB.state.toast('¡Perfil guardado! Tu primera caja está en preparación.');
+          const duration = res.quizSession ? ` en ${Math.floor(res.quizSession.durationSec / 60)}:${String(res.quizSession.durationSec % 60).padStart(2, '0')} min` : '';
+          const wasRepeat = repeatMode;
           currentStep = 1;
-          window.location.hash = '#/caja';
+          gameRound = 0;
+          repeatMode = false;
+          if (wasRepeat) {
+            TCB.state.toast(`Nueva versión de tu perfil guardada (v${res.profile.version})${duration}.`);
+            window.location.hash = '#/perfil';
+          } else {
+            // HU-08: sin suscripción pagada, el siguiente paso es elegir plan y registrar el pago.
+            const { subscription } = await TCB.api.subscription.get();
+            if (subscription.status === 'ACTIVE') {
+              TCB.state.toast(`¡Perfil guardado${duration}! Tu estilista revisará tu primera caja.`);
+              window.location.hash = '#/caja';
+            } else {
+              TCB.state.toast(`¡Perfil guardado${duration}! Último paso: activa tu plan.`);
+              window.location.hash = '#/suscripcion';
+            }
+          }
         } catch (err) {
           errEl.textContent = err.data?.error || err.message;
         } finally {
@@ -383,5 +526,5 @@ TCB.views.onboarding = (() => {
     });
   }
 
-  return { render, mount };
+  return { render, mount, startRepeat };
 })();

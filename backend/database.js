@@ -2,8 +2,9 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const DB_FILE = path.join(__dirname, 'data', 'db.json');
-const CATALOG_FILE = path.join(__dirname, 'data', 'catalog.json');
+const DB_FILE = process.env.TCB_DB_FILE || path.join(__dirname, 'data', 'db.json');
+const CATALOG_FILE = process.env.TCB_CATALOG_FILE || path.join(__dirname, 'data', 'catalog.json');
+const { normalizeProduct } = require('./catalog');
 
 function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
   const hash = crypto.scryptSync(password, salt, 64).toString('hex');
@@ -18,16 +19,21 @@ function verifyPassword(password, stored) {
   return crypto.timingSafeEqual(keyBuffer, derivedKey);
 }
 
+// Colecciones de la base. Las de Sprint 2 se crean vacías en bases existentes.
+const COLLECTIONS = ['users', 'profiles', 'boxes', 'ratings', 'returns', 'consents', 'authTokens', 'subscriptions', 'cancellations', 'corrections', 'quizSessions', 'profileVersions', 'payments', 'invoices', 'alerts', 'inventoryMovements', 'dataRequests', 'settings'];
+
+function emptyData() {
+  return Object.fromEntries(COLLECTIONS.map(c => [c, []]));
+}
+
+function sha256(value) {
+  return crypto.createHash('sha256').update(String(value)).digest('hex');
+}
+
 class Database {
   constructor() {
     this.catalog = [];
-    this.data = {
-      users: [],
-      profiles: [],
-      boxes: [],
-      ratings: [],
-      returns: []
-    };
+    this.data = emptyData();
     this.init();
   }
 
@@ -36,6 +42,7 @@ class Database {
     if (fs.existsSync(CATALOG_FILE)) {
       try {
         this.catalog = JSON.parse(fs.readFileSync(CATALOG_FILE, 'utf8'));
+        if (this.catalog.filter(normalizeProduct).length > 0) this.saveCatalog();
       } catch (err) {
         console.error('Error reading catalog:', err);
       }
@@ -45,7 +52,7 @@ class Database {
     if (fs.existsSync(DB_FILE)) {
       try {
         const raw = fs.readFileSync(DB_FILE, 'utf8');
-        this.data = Object.assign({ users: [], profiles: [], boxes: [], ratings: [], returns: [] }, JSON.parse(raw));
+        this.data = Object.assign(emptyData(), JSON.parse(raw));
       } catch (e) {
         console.warn('Re-initializing database due to read error:', e.message);
         this.seedInitial();
@@ -79,9 +86,51 @@ class Database {
       needsSave = true;
     }
 
+    // HU-07: usuario estilista de demostración
+    if (!this.data.users.some(u => u.email === 'estilista@theclothesbox.co')) {
+      this.data.users.push({
+        id: 'usr_stylist_01',
+        name: 'Laura Estilista',
+        email: 'estilista@theclothesbox.co',
+        passwordHash: hashPassword('estilista123'),
+        role: 'STYLIST',
+        createdAt: '2026-11-01T08:00:00.000Z'
+      });
+      needsSave = true;
+    }
+
+    // HU-08: el cliente demo tiene una suscripción pagada con la tarjeta de prueba 4242
+    const demo = this.data.users.find(u => u.email === 'demo@theclothesbox.co');
+    if (demo && !this.data.subscriptions.some(s => s.userId === demo.id)) {
+      const now = new Date();
+      const next = new Date(now);
+      next.setMonth(next.getMonth() + 1);
+      this.data.subscriptions.push({
+        id: 'sub_demo_01',
+        userId: demo.id,
+        plan: (this.getProfile(demo.id) || {}).plan || 'esencial',
+        status: 'ACTIVE',
+        paymentToken: 'tok_sim_ok_visa_4242_demo0000000000',
+        cardBrand: 'Visa',
+        cardLast4: '4242',
+        startedAt: now.toISOString(),
+        nextChargeAt: next.toISOString(),
+        dunning: null,
+        createdAt: now.toISOString()
+      });
+      if (!demo.fiscal) {
+        demo.fiscal = { docType: 'CC', docNumber: '1144000000', address: 'Calle 18 # 122-135, Pance', city: 'Cali' };
+      }
+      needsSave = true;
+    }
+
     if (needsSave) {
       this.save();
     }
+  }
+
+  saveCatalog() {
+    fs.writeFileSync(CATALOG_FILE, JSON.stringify(this.catalog, null, 2) + '\n', 'utf8');
   }
 
   save() {
@@ -106,6 +155,7 @@ class Database {
     const adminUserId = 'usr_admin_01';
 
     this.data = {
+      ...emptyData(),
       users: [
         {
           id: demoUserId,
@@ -288,7 +338,7 @@ class Database {
     return this.data.users.find(u => u.id === id) || null;
   }
 
-  createUser(name, email, password, role = 'CLIENT') {
+  createUser(name, email, password, role = 'CLIENT', extra = {}) {
     const id = `usr_${crypto.randomBytes(6).toString('hex')}`;
     const user = {
       id,
@@ -296,11 +346,296 @@ class Database {
       email: email.trim().toLowerCase(),
       passwordHash: hashPassword(password),
       role: role || 'CLIENT',
+      ...extra,
       createdAt: new Date().toISOString()
     };
     this.data.users.push(user);
     this.save();
     return user;
+  }
+
+  updateUser(userId, updates) {
+    const user = this.findUserById(userId);
+    if (!user) return null;
+    Object.assign(user, updates);
+    this.save();
+    return user;
+  }
+
+  setPassword(userId, password) {
+    return this.updateUser(userId, { passwordHash: hashPassword(password) });
+  }
+
+  // HU-02: registro de auditoría del consentimiento
+  addConsent(userId, { accepted, policyVersion }) {
+    const consent = {
+      id: `cns_${crypto.randomBytes(6).toString('hex')}`,
+      userId,
+      accepted: accepted === true,
+      policyVersion,
+      acceptedAt: new Date().toISOString()
+    };
+    this.data.consents.push(consent);
+    this.save();
+    return consent;
+  }
+
+  getConsentsByUser(userId) {
+    return this.data.consents.filter(c => c.userId === userId);
+  }
+
+  // HU-01: tokens de un solo uso (recuperación y verificación). Solo se guarda el hash.
+  createAuthToken(userId, type, ttlMs) {
+    const token = crypto.randomBytes(32).toString('hex');
+    this.data.authTokens.push({
+      id: `tok_${crypto.randomBytes(6).toString('hex')}`,
+      userId,
+      type,
+      tokenHash: sha256(token),
+      expiresAt: ttlMs ? new Date(Date.now() + ttlMs).toISOString() : null,
+      usedAt: null,
+      createdAt: new Date().toISOString()
+    });
+    this.save();
+    return token;
+  }
+
+  // Devuelve el registro si el token es válido y lo marca como usado.
+  consumeAuthToken(token, type) {
+    if (!token) return null;
+    const hash = sha256(token);
+    const record = this.data.authTokens.find(t => t.tokenHash === hash && t.type === type);
+    if (!record || record.usedAt) return null;
+    if (record.expiresAt && new Date(record.expiresAt) < new Date()) return null;
+    record.usedAt = new Date().toISOString();
+    this.save();
+    return record;
+  }
+
+  // HU-08: la suscripción nace con el primer pago aprobado. Sin registro el estado es NONE.
+  getSubscription(userId) {
+    let sub = this.data.subscriptions.find(s => s.userId === userId);
+    if (!sub) {
+      const profile = this.getProfile(userId);
+      sub = {
+        userId,
+        plan: (profile && profile.plan) || 'esencial',
+        status: 'NONE'
+      };
+    }
+    return sub;
+  }
+
+  getAllSubscriptions() {
+    return this.data.subscriptions;
+  }
+
+  saveSubscription(userId, updates) {
+    let sub = this.data.subscriptions.find(s => s.userId === userId);
+    if (!sub) {
+      sub = { id: `sub_${crypto.randomBytes(6).toString('hex')}`, ...this.getSubscription(userId), createdAt: new Date().toISOString() };
+      this.data.subscriptions.push(sub);
+    }
+    Object.assign(sub, updates, { updatedAt: new Date().toISOString() });
+    this.save();
+    return sub;
+  }
+
+  // HU-08: pagos con comisión de pasarela y estado de conciliación
+  addPayment(data) {
+    const payment = {
+      id: `pay_${crypto.randomBytes(6).toString('hex')}`,
+      reconciliation: { status: 'PENDING', at: null },
+      invoiceId: null,
+      createdAt: new Date().toISOString(),
+      ...data
+    };
+    this.data.payments.push(payment);
+    this.save();
+    return payment;
+  }
+
+  findPayment(predicate) {
+    return this.data.payments.find(predicate) || null;
+  }
+
+  getPayments(userId) {
+    const list = userId ? this.data.payments.filter(p => p.userId === userId) : this.data.payments;
+    return [...list].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  }
+
+  // HU-15: facturas con consecutivo propio y alertas para el equipo
+  addInvoice(data) {
+    const consecutive = this.data.invoices.reduce((max, i) => Math.max(max, i.consecutive || 0), 0) + 1;
+    const invoice = {
+      id: `inv_${crypto.randomBytes(6).toString('hex')}`,
+      consecutive,
+      createdAt: new Date().toISOString(),
+      ...data,
+      number: `${data.prefix}-${consecutive}`
+    };
+    this.data.invoices.push(invoice);
+    this.save();
+    return invoice;
+  }
+
+  getInvoices(userId) {
+    const list = userId ? this.data.invoices.filter(i => i.userId === userId) : this.data.invoices;
+    return [...list].sort((a, b) => b.consecutive - a.consecutive);
+  }
+
+  addAlert(data) {
+    const alert = { id: `alr_${crypto.randomBytes(6).toString('hex')}`, createdAt: new Date().toISOString(), resolvedAt: null, ...data };
+    this.data.alerts.push(alert);
+    this.save();
+    return alert;
+  }
+
+  getAlerts() {
+    return [...this.data.alerts].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  }
+
+  // HU-16: solicitudes del titular (consulta, rectificación, supresión) con su tiempo de respuesta
+  addDataRequest(userId, type, { requestedAt, status = 'COMPLETED', detail = '' } = {}) {
+    const resolvedAt = new Date();
+    const request = {
+      id: `dreq_${crypto.randomBytes(6).toString('hex')}`,
+      userId,
+      type,
+      status,
+      detail,
+      requestedAt: (requestedAt || resolvedAt).toISOString(),
+      resolvedAt: resolvedAt.toISOString(),
+      responseMs: resolvedAt - (requestedAt || resolvedAt)
+    };
+    this.data.dataRequests.push(request);
+    this.save();
+    return request;
+  }
+
+  // HU-17: ajustes editables desde el panel
+  getSetting(key, fallback) {
+    const found = this.data.settings.find(s => s.key === key);
+    return found ? found.value : fallback;
+  }
+
+  setSetting(key, value) {
+    let found = this.data.settings.find(s => s.key === key);
+    if (!found) {
+      found = { key };
+      this.data.settings.push(found);
+    }
+    Object.assign(found, { value, updatedAt: new Date().toISOString() });
+    this.save();
+    return found;
+  }
+
+  addCancellation(userId, { plan, reason, comment }) {
+    const cancellation = {
+      id: `cnl_${crypto.randomBytes(6).toString('hex')}`,
+      userId,
+      plan,
+      reason: reason || null,
+      comment: comment || '',
+      createdAt: new Date().toISOString()
+    };
+    this.data.cancellations.push(cancellation);
+    this.save();
+    return cancellation;
+  }
+
+  getCancellationReasonCounts(reasonKeys) {
+    const counts = Object.fromEntries(reasonKeys.map(k => [k, 0]));
+    let unanswered = 0;
+    this.data.cancellations.forEach(c => {
+      if (c.reason && counts[c.reason] !== undefined) counts[c.reason]++;
+      else unanswered++;
+    });
+    return { total: this.data.cancellations.length, counts, unanswered };
+  }
+
+  // HU-07: correcciones del estilista (ejemplos para el reentrenamiento de HU-11)
+  addCorrection(data) {
+    const correction = {
+      id: `cor_${crypto.randomBytes(6).toString('hex')}`,
+      ...data,
+      createdAt: new Date().toISOString()
+    };
+    this.data.corrections.push(correction);
+    this.save();
+    return correction;
+  }
+
+  // HU-03: sesiones del quiz (progreso parcial y tiempo de completado)
+  getOpenQuizSession(userId) {
+    return this.data.quizSessions.find(q => q.userId === userId && q.status === 'IN_PROGRESS') || null;
+  }
+
+  saveQuizProgress(userId, { step, answers, repeat }) {
+    let session = this.getOpenQuizSession(userId);
+    if (!session) {
+      session = {
+        id: `quiz_${crypto.randomBytes(6).toString('hex')}`,
+        userId,
+        status: 'IN_PROGRESS',
+        repeat: !!repeat,
+        startedAt: new Date().toISOString()
+      };
+      this.data.quizSessions.push(session);
+    }
+    Object.assign(session, { step, answers, updatedAt: new Date().toISOString() });
+    this.save();
+    return session;
+  }
+
+  completeQuizSession(userId) {
+    const session = this.getOpenQuizSession(userId);
+    if (!session) return null;
+    const completedAt = new Date();
+    Object.assign(session, {
+      status: 'COMPLETED',
+      completedAt: completedAt.toISOString(),
+      durationSec: Math.round((completedAt - new Date(session.startedAt)) / 1000)
+    });
+    this.save();
+    return session;
+  }
+
+  getQuizStats() {
+    const done = this.data.quizSessions.filter(q => q.status === 'COMPLETED' && Number.isFinite(q.durationSec));
+    const avg = done.length ? Math.round(done.reduce((a, q) => a + q.durationSec, 0) / done.length) : null;
+    return {
+      completed: done.length,
+      inProgress: this.data.quizSessions.filter(q => q.status === 'IN_PROGRESS').length,
+      averageDurationSec: avg,
+      recent: done.slice(-10).reverse().map(q => {
+        const user = this.findUserById(q.userId);
+        return { userName: user ? user.name : q.userId, durationSec: q.durationSec, completedAt: q.completedAt, repeat: q.repeat };
+      })
+    };
+  }
+
+  // HU-03: el perfil de estilo anterior se conserva como versión al repetir el quiz
+  archiveProfileVersion(userId) {
+    const profile = this.getProfile(userId);
+    if (!profile || !profile.done) return null;
+    const { userId: _u, ...snapshot } = profile;
+    const version = {
+      id: `pv_${crypto.randomBytes(6).toString('hex')}`,
+      userId,
+      version: profile.version || 1,
+      snapshot: JSON.parse(JSON.stringify(snapshot)),
+      archivedAt: new Date().toISOString()
+    };
+    this.data.profileVersions.push(version);
+    this.save();
+    return version;
+  }
+
+  getProfileVersions(userId) {
+    return this.data.profileVersions
+      .filter(v => v.userId === userId)
+      .sort((a, b) => b.version - a.version);
   }
 
   getAllUsers() {
@@ -312,6 +647,7 @@ class Database {
         name: u.name,
         email: u.email,
         role: u.role || 'CLIENT',
+        emailVerified: u.emailVerified,
         createdAt: u.createdAt,
         profile,
         boxesCount: boxes.length,
@@ -368,16 +704,23 @@ class Database {
 
   createBox(userId, boxData) {
     const box = {
-      id: `box_${String(Date.now()).slice(-6)}`,
+      id: `box_${crypto.randomBytes(5).toString('hex')}`,
       userId,
       cycle: boxData.cycle || 1,
-      status: boxData.status || 'PREPARING',
+      status: boxData.status || 'PROPOSED',
       plan: boxData.plan || 'esencial',
       address: boxData.address || 'Cali, Colombia',
       createdAt: new Date().toISOString(),
       deliveredAt: null,
       estimatedDelivery: boxData.estimatedDelivery || new Date(Date.now() + 4 * 86400000).toISOString().split('T')[0],
       itemIds: boxData.itemIds || [],
+      recommendations: boxData.recommendations || [],
+      totalCostCOP: boxData.totalCostCOP ?? null,
+      targetCostCOP: boxData.targetCostCOP ?? null,
+      withinCap: boxData.withinCap ?? null,
+      rulesVersion: boxData.rulesVersion || null,
+      profileLearningRevision: boxData.profileLearningRevision ?? null,
+      reviewLog: [],
       unboxed: false
     };
     this.data.boxes.push(box);
@@ -425,6 +768,8 @@ class Database {
     if (rating) {
       Object.assign(rating, {
         score: ratingData.score !== undefined ? ratingData.score : rating.score,
+        fitScore: ratingData.fitScore !== undefined ? ratingData.fitScore : (rating.fitScore ?? null),
+        styleScore: ratingData.styleScore !== undefined ? ratingData.styleScore : (rating.styleScore ?? null),
         liked: ratingData.liked !== undefined ? ratingData.liked : rating.liked,
         styleFeedback: ratingData.styleFeedback !== undefined ? ratingData.styleFeedback : (ratingData.feedback || rating.styleFeedback),
         feedback: ratingData.feedback || rating.feedback,
@@ -439,6 +784,8 @@ class Database {
         boxId,
         productId,
         score: ratingData.score || 4,
+        fitScore: ratingData.fitScore ?? null,
+        styleScore: ratingData.styleScore ?? null,
         liked: ratingData.liked !== false,
         styleFeedback: ratingData.styleFeedback || ratingData.feedback || '',
         feedback: ratingData.feedback || '',
@@ -515,13 +862,14 @@ class Database {
       p = { ...productData, id: newId };
       this.catalog.push(p);
     }
-    fs.writeFileSync(CATALOG_FILE, JSON.stringify(this.catalog, null, 2), 'utf8');
+    normalizeProduct(p);
+    this.saveCatalog();
     return p;
   }
 
   // Admin Metrics
   getAdminMetrics() {
-    const clients = this.data.users.filter(u => u.role !== 'ADMIN');
+    const clients = this.data.users.filter(u => (u.role || 'CLIENT') === 'CLIENT');
     const totalBoxes = this.data.boxes.length;
     const deliveredBoxes = this.data.boxes.filter(b => b.status === 'DELIVERED' || b.status === 'RATED').length;
     const inTransitBoxes = this.data.boxes.filter(b => b.status === 'SHIPPED').length;
@@ -555,6 +903,7 @@ const db = new Database();
 
 module.exports = {
   db,
+  sha256,
   verifyPassword,
   hashPassword
 };

@@ -6,15 +6,19 @@ TCB.views.returns = (() => {
   const { icon, logoSvg, garmentSvg } = TCB.brand;
 
   let cachedData = null;
+  let windowDays = 5;
+  const day = iso => new Date(iso).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long' });
 
   async function loadReturnsData() {
     try {
-      const res = await TCB.api.returns.get();
+      // HU-14: el plazo sale de la misma constante del backend (GET /api/config)
+      const [res, cfg] = await Promise.all([TCB.api.returns.get(), TCB.api.config()]);
+      windowDays = cfg.returnWindowBusinessDays;
       cachedData = res;
       return res;
     } catch (e) {
       console.error('Error fetching returns:', e);
-      return { returns: [], returnableItems: [] };
+      return { returns: [], returnableGarments: [] };
     }
   }
 
@@ -37,7 +41,7 @@ TCB.views.returns = (() => {
       `;
     }
 
-    const { returns = [], returnableItems = [] } = cachedData || {};
+    const { returns = [], returnableGarments = [] } = cachedData || {};
 
     return `
       <div class="screen wrap">
@@ -67,11 +71,11 @@ TCB.views.returns = (() => {
         <!-- PRENDAS ELEGIBLES PARA CAMBIO -->
         <section style="margin-bottom:var(--s-8)">
           <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:var(--s-4);flex-wrap:wrap;gap:12px">
-            <h2 class="display" style="font-size:var(--fs-2xl)">Prendas recibidas elegibles para cambio (${returnableItems.length})</h2>
-            <span class="small muted">Plazo de cambio: 15 días posteriores a la entrega</span>
+            <h2 class="display" style="font-size:var(--fs-2xl)">Prendas recibidas elegibles para cambio (${returnableGarments.length})</h2>
+            <span class="small muted">Plazo de cambio: ${windowDays} días hábiles desde la entrega</span>
           </div>
 
-          ${returnableItems.length === 0 ? `
+          ${returnableGarments.length === 0 ? `
             <div style="background:var(--sheet);border:var(--hair);padding:32px;text-align:center;border-radius:var(--r-1)">
               <p style="font-weight:600">No tienes prendas pendientes de cambio de talla.</p>
               <p class="small muted" style="margin-top:4px">
@@ -81,25 +85,28 @@ TCB.views.returns = (() => {
             </div>
           ` : `
             <div class="returnable-list">
-              ${returnableItems.map(item => `
+              ${returnableGarments.map(item => `
                 <div class="returnable-item" data-item-id="${item.id}">
                   <div style="width:68px;height:84px;border-radius:var(--r-1);overflow:hidden;flex:none;background:var(--paper-2)">
                     <img src="${item.imageUrl || 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=800&q=80'}" alt="${item.name}" style="width:100%;height:100%;object-fit:cover" loading="lazy" />
                   </div>
                   <div>
                     <div style="display:flex;gap:8px;align-items:center">
-                      <span class="badge badge--dark" style="font-size:10px">${item.brand}</span>
+                      <span class="badge badge--dark" style="font-size:10px">${item.brandName}</span>
                       <span class="small mono muted">Ciclo #${item.cycle}</span>
                     </div>
                     <h3 style="font-weight:700;font-size:var(--fs-base);margin-top:4px">${item.name}</h3>
                     <p class="small muted">
-                      Talla recibida: <strong>${item.size}</strong> · Tejido: ${item.fabric} · Corte: ${item.fit}
+                      Talla recibida: <strong>${item.fit.size}</strong> · Tejido: ${item.fabric} · Corte: ${item.cut}
                     </p>
+                    ${item.returnDeadline ? `<p class="small ${item.withinWindow ? 'muted' : 'error'}">${item.withinWindow ? `Puedes pedir el cambio hasta el ${day(item.returnDeadline)}` : `El plazo venció el ${day(item.returnDeadline)}`}</p>` : ''}
                   </div>
                   <div>
-                    <button type="button" class="btn btn--sm btn--gold" data-open-return-modal='${JSON.stringify(item).replace(/'/g, "&apos;")}'>
-                      ${icon('return', 14)} Solicitar cambio de talla
-                    </button>
+                    ${item.isReturned ? '<span class="small muted">Cambio solicitado</span>' : item.withinWindow ? `
+                      <button type="button" class="btn btn--sm btn--gold" data-open-return-modal='${JSON.stringify(item).replace(/'/g, "&apos;")}'>
+                        ${icon('return', 14)} Solicitar cambio de talla
+                      </button>
+                    ` : '<span class="small muted">Fuera de plazo</span>'}
                   </div>
                 </div>
               `).join('')}
@@ -128,6 +135,7 @@ TCB.views.returns = (() => {
                     <th>Talla actual ➔ Solicitada</th>
                     <th>Motivo de talla</th>
                     <th>Recolección</th>
+                    <th>Guías</th>
                     <th>Estado</th>
                   </tr>
                 </thead>
@@ -135,6 +143,8 @@ TCB.views.returns = (() => {
                   ${returns.map(ret => {
                     const statusBadge = {
                       PENDING: '<span class="badge badge--dark">Pendiente</span>',
+                      PENDING_PICKUP: '<span class="badge badge--accent">Recogida agendada</span>',
+                      RECEIVED: '<span class="badge badge--dark">Prenda recibida</span>',
                       PICKUP_SCHEDULED: '<span class="badge badge--accent">Recolección agendada</span>',
                       PROCESSING: '<span class="badge badge--dark">En taller</span>',
                       COMPLETED: '<span class="badge badge--accent">Talla cambiada</span>'
@@ -161,6 +171,12 @@ TCB.views.returns = (() => {
                         <td class="small">
                           <div>${ret.scheduledPickupDate || 'Hoy'}</div>
                           <div class="muted">${ret.pickupAddress || 'Cali, Colombia'}</div>
+                        </td>
+                        <td class="small">
+                          ${ret.returnTrackingNumber ? `<div>Devolución: <span class="mono">${ret.returnTrackingNumber}</span></div>` : '—'}
+                          ${ret.exchangeTrackingNumber ? `<div>Envío ${ret.resolution === 'EQUIVALENT' ? `de ${ret.replacementName}` : 'nueva talla'}: <span class="mono">${ret.exchangeTrackingNumber}</span></div>` : ''}
+                          ${ret.resolution === 'RETURN_ONLY' ? '<div class="muted">Solo devolución</div>' : ''}
+                          ${ret.carrier ? `<div class="muted">${ret.carrier}</div>` : ''}
                         </td>
                         <td>${statusBadge}</td>
                       </tr>
@@ -190,9 +206,9 @@ TCB.views.returns = (() => {
               <img src="${item.imageUrl || 'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=800&q=80'}" alt="${item.name}" style="width:100%;height:100%;object-fit:cover" />
             </div>
             <div>
-              <p class="badge badge--dark" style="font-size:10px">${item.brand}</p>
+              <p class="badge badge--dark" style="font-size:10px">${item.brandName}</p>
               <h4 style="font-weight:700;font-size:var(--fs-base)">${item.name}</h4>
-              <p class="small muted">Talla recibida: <strong>${item.size}</strong></p>
+              <p class="small muted">Talla recibida: <strong>${item.fit.size}</strong></p>
             </div>
           </div>
 
@@ -215,11 +231,7 @@ TCB.views.returns = (() => {
             <div class="field">
               <label for="return-size"><strong>Talla de reemplazo solicitada</strong></label>
               <select class="input" id="return-size" name="requestedSize" required>
-                <option value="XS" ${item.size === 'S' ? 'selected' : ''}>XS (Extra Small)</option>
-                <option value="S" ${item.size === 'M' ? 'selected' : ''}>S (Small)</option>
-                <option value="M" ${item.size === 'L' ? 'selected' : ''}>M (Medium)</option>
-                <option value="L" ${item.size === 'M' ? 'selected' : ''}>L (Large)</option>
-                <option value="XL" ${item.size === 'L' ? 'selected' : ''}>XL (Extra Large)</option>
+                ${[...new Set((item.variants || []).map(v => v.size))].filter(sz => sz !== item.fit.size).map(sz => `<option value="${sz}">${sz}</option>`).join('')}
               </select>
             </div>
 
@@ -237,6 +249,8 @@ TCB.views.returns = (() => {
               <label for="return-date">Fecha preferida para recolección del mensajero</label>
               <input class="input" id="return-date" name="scheduledPickupDate" type="date" required value="${new Date(Date.now() + 86400000).toISOString().split('T')[0]}">
             </div>
+
+            <div id="return-options"></div>
 
             <button type="submit" class="btn btn--gold btn--block" style="margin-top:8px">
               ${icon('check')} Confirmar Solicitud de Cambio Gratis
@@ -263,22 +277,52 @@ TCB.views.returns = (() => {
             return;
           }
 
+          // HU-14: si antes no había stock, el cliente eligió una prenda equivalente o solo devolver
+          const choice = form.querySelector('input[name="resolution"]:checked');
+          const resolution = choice ? (choice.value === 'RETURN_ONLY' ? 'RETURN_ONLY' : 'EQUIVALENT') : undefined;
+          const replacementProductId = choice && choice.value !== 'RETURN_ONLY' ? choice.value : undefined;
+
           try {
             const result = await TCB.api.returns.create({
               boxId: item.boxId,
-              productId: item.productId,
+              productId: item.id,
               reason,
               requestedSize,
               notes,
               pickupAddress,
-              scheduledPickupDate
+              scheduledPickupDate,
+              resolution,
+              replacementProductId
             });
 
             close();
-            TCB.state.toast(`Solicitud de cambio #${result.returnRequest.id} registrada con éxito.`);
+            TCB.state.toast(result.message, { ms: 7000 });
             if (onCompleted) onCompleted();
           } catch (err) {
-            errEl.textContent = err.message || 'Error al procesar la solicitud.';
+            const optionsEl = modalEl.querySelector('#return-options');
+            errEl.textContent = err.data?.error || err.message || 'Error al procesar la solicitud.';
+            if (err.data?.code === 'NO_STOCK_IN_SIZE') {
+              const { equivalents } = err.data.options;
+              optionsEl.innerHTML = `
+                <fieldset class="stack" style="--stack:8px;border:var(--hair);padding:12px;border-radius:var(--r-1)">
+                  <legend class="small" style="font-weight:700;padding:0 4px">¿Qué prefieres?</legend>
+                  ${equivalents.map((e, i) => `
+                    <label style="display:flex;gap:10px;align-items:center;font-size:var(--fs-sm);cursor:pointer">
+                      <input type="radio" name="resolution" value="${e.id}" ${i === 0 ? 'checked' : ''}>
+                      <img src="${e.imageUrl}" alt="" style="width:36px;height:44px;object-fit:cover;border-radius:var(--r-1)">
+                      <span>Cambiar por <strong>${e.name}</strong> · ${e.brandName} en talla ${requestedSize}</span>
+                    </label>
+                  `).join('')}
+                  <label style="display:flex;gap:10px;align-items:center;font-size:var(--fs-sm);cursor:pointer">
+                    <input type="radio" name="resolution" value="RETURN_ONLY" ${equivalents.length ? '' : 'checked'}>
+                    <span>Solo devolver la prenda</span>
+                  </label>
+                </fieldset>
+              `;
+              form.requestedSize.addEventListener('change', () => { optionsEl.innerHTML = ''; }, { once: true });
+            } else if (err.data?.code === 'RETURN_WINDOW_EXPIRED') {
+              optionsEl.innerHTML = `<ul class="small muted" style="padding-left:18px">${err.data.conditions.map(c => `<li>${c}</li>`).join('')}</ul>`;
+            }
           }
         });
       }
@@ -316,7 +360,7 @@ TCB.views.returns = (() => {
     const hash = window.location.hash;
     if (hash.includes('?item=') && cachedData) {
       const itemId = hash.split('?item=')[1];
-      const match = (cachedData.returnableItems || []).find(i => i.id === itemId);
+      const match = (cachedData.returnableGarments || []).find(i => i.id === itemId);
       if (match) {
         openReturnModal(match, async () => {
           await loadReturnsData();

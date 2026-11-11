@@ -6,7 +6,13 @@
       "email": "demo@theclothesbox.co",
       "passwordHash": "2f7ed5191058a2b516de6662962f049a:239a8b7ca1a37d3233921eb478c37054a025fdc9e4e047d9f21850277845f5e66b8af455088879adb930815abede6db337046bf727294659feba4fa644e0b5ed",
       "createdAt": "2026-08-01T10:00:00.000Z",
-      "role": "CLIENT"
+      "role": "CLIENT",
+      "fiscal": {
+        "docType": "CC",
+        "docNumber": "1144000000",
+        "address": "Calle 18 # 122-135, Pance",
+        "city": "Cali"
+      }
     },
     {
       "id": "usr_8658ea9d9471",
@@ -95,6 +101,14 @@
       "passwordHash": "84c42b577cbcf8a7dcb20b41a9f9098f:fe35a58878e890582a35b448025ca6e07e7c1063a085ea2c0c5bae9d783fbe6cbfab3c37825ba1b588babadf1fe8c2cc61b0171295cc5b5161822bdaddd5dbf6",
       "role": "CLIENT",
       "createdAt": "2026-10-22T23:23:52.237Z"
+    },
+    {
+      "id": "usr_stylist_01",
+      "name": "Laura Estilista",
+      "email": "estilista@theclothesbox.co",
+      "passwordHash": "4b4529eaa4946a08d2b3aee82d6e7b07:cdb8a720485a3a623f42ad412edee008b4a704d2c83e4d5a7f772d33972654af69e365b563ec237dcf0065ce687216f6e5f58c2e0f3df53d18de39e691cf0df9",
+      "role": "STYLIST",
+      "createdAt": "2026-11-01T08:00:00.000Z"
     }
   ],
   "profiles": [
@@ -883,5 +897,29 @@
       "status": "PENDING_PICKUP",
       "createdAt": "2026-10-22T23:23:52.318Z"
     }
-  ]
+  ],
+  "consents": [],
+  "authTokens": [],
+  "subscriptions": [
+    {
+      "id": "sub_demo_01",
+      "userId": "usr_demo_01",
+      "plan": "esencial",
+      "status": "ACTIVE",
+      "paymentToken": "tok_sim_ok_visa_4242_demo0000000000",
+      "cardBrand": "Visa",
+      "cardLast4": "4242",
+      "startedAt": "2026-11-04T12:38:04.304Z",
+      "nextChargeAt": "2026-12-04T12:38:04.304Z",
+      "dunning": null,
+      "createdAt": "2026-11-04T12:38:04.304Z"
+    }
+  ],
+  "cancellations": [],
+  "corrections": [],
+  "quizSessions": [],
+  "profileVersions": [],
+  "payments": [],
+  "invoices": [],
+  "alerts": []
 }
