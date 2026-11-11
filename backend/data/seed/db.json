@@ -6,13 +6,6 @@
       "email": "demo@theclothesbox.co",
       "role": "CLIENT",
       "createdAt": "2026-08-01T10:00:00.000Z"
-    },
-    {
-      "id": "usr_admin_01",
-      "name": "Administrador de Operaciones",
-      "email": "admin@theclothesbox.co",
-      "role": "ADMIN",
-      "createdAt": "2026-08-01T08:00:00.000Z"
     }
   ],
   "profiles": [

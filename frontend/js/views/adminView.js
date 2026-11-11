@@ -82,7 +82,7 @@ TCB.views.admin = (() => {
             </p>
             <div style="margin-top:24px;display:flex;gap:12px;justify-content:center">
               <button type="button" class="btn btn--gold" id="btn-login-as-admin">
-                Ingresar como Administrador (admin123)
+                Iniciar sesión como Administrador
               </button>
               <a href="#/caja" class="btn btn--ghost">Volver a Mi Cuenta Cliente</a>
             </div>
@@ -108,9 +108,6 @@ TCB.views.admin = (() => {
           <div style="display:flex;gap:10px;align-items:center">
             <button type="button" class="btn btn--sm btn--gold" id="btn-refresh-admin">
               ${icon('refresh', 14)} Actualizar Datos
-            </button>
-            <button type="button" class="btn btn--sm btn--ghost" id="btn-switch-to-client" style="border-color:rgba(255,255,255,0.3);color:#fff">
-              Ver como Cliente Demo
             </button>
           </div>
         </div>
@@ -221,29 +218,16 @@ TCB.views.admin = (() => {
   }
 
   function mount(root) {
-    // Botón de login directo como admin
-    root.querySelector('#btn-login-as-admin')?.addEventListener('click', async () => {
-      try {
-        await TCB.api.auth.login('admin@theclothesbox.co', 'admin123');
-        await TCB.state.loadUserSession();
+    // Sin sesión de administrador: abre el inicio de sesión normal (no hay credenciales en el frontend).
+    root.querySelector('#btn-login-as-admin')?.addEventListener('click', () => {
+      TCB.views.auth.openLoginModal(async role => {
+        if (role !== 'ADMIN') {
+          TCB.state.toast('Esa cuenta no tiene rol de Administrador.', { type: 'danger' });
+          return;
+        }
         await loadAdminData();
-        TCB.state.toast('Sesión iniciada como Administrador de Operaciones.');
-        window.location.hash = '#/admin';
-      } catch (e) {
-        TCB.state.toast('Error al autenticar administrador.', { type: 'danger' });
-      }
-    });
-
-    // Cambiar a cliente demo
-    root.querySelector('#btn-switch-to-client')?.addEventListener('click', async () => {
-      try {
-        await TCB.api.auth.login('demo@theclothesbox.co', 'demo123');
-        await TCB.state.loadUserSession();
-        TCB.state.toast('Cambiado a sesión de Cliente Demo.');
-        window.location.hash = '#/caja';
-      } catch (e) {
-        TCB.state.toast('Error al cambiar a cliente demo.', { type: 'danger' });
-      }
+        rerender();
+      });
     });
 
     // Actualizar datos

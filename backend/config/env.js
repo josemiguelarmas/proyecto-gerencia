@@ -39,6 +39,10 @@ function load(source = process.env) {
     ADMIN_PASSWORD: source.ADMIN_PASSWORD || '',
     STYLIST_EMAIL: source.STYLIST_EMAIL || '',
     STYLIST_PASSWORD: source.STYLIST_PASSWORD || '',
+    WAREHOUSE_EMAIL: source.WAREHOUSE_EMAIL || '',
+    WAREHOUSE_PASSWORD: source.WAREHOUSE_PASSWORD || '',
+    // Optional password for the seeded demo client (no password means it cannot log in).
+    DEMO_CLIENT_PASSWORD: source.DEMO_CLIENT_PASSWORD || '',
     CORS_ORIGINS: list(source.CORS_ORIGINS),
     PAYMENT_WEBHOOK_SECRET: source.PAYMENT_WEBHOOK_SECRET || '',
     POLICY_VERSION: source.POLICY_VERSION || 'v1.0',

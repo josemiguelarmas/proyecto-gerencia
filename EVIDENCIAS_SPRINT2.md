@@ -199,7 +199,7 @@ Escenarios Gherkin cubiertos. **3 de 3** (antes 0).
 | El estilista reemplaza una prenda con motivo, validando talla y stock del suscriptor. La corrección queda en `corrections` | backend/routes.js L347 · backend/database.js L442 (`addCorrection`) · alternativas en L312 | Prueba 36 |
 | El despacho se bloquea si la caja no está aprobada (409 "La caja no ha sido aprobada") | backend/routes.js L691 (simulate-step) y L514 (cambio de estado del admin) | Prueba 35 |
 | Rechazo de la propuesta (adicional) | backend/routes.js L378 | Prueba 37 |
-| Rol STYLIST y permisos | backend/routes.js L298 (`/api/stylist/*` para STYLIST y ADMIN) · backend/database.js L92 (usuario estilista@theclothesbox.co / estilista123) | Prueba 34 |
+| Rol STYLIST y permisos | backend/routes.js L298 (`/api/stylist/*` para STYLIST y ADMIN) · backend/database.js L92 (usuario estilista; desde F5 se siembra con STYLIST_EMAIL y STYLIST_PASSWORD, sin contraseña en el código) | Prueba 34 |
 
 Detalles.
 - **Estados.** PROPOSED → APPROVED → PREPARING → SHIPPED → DELIVERED → RATED. Las cajas creadas antes de HU-07 (PREPARING, SHIPPED…) se consideran aprobadas.

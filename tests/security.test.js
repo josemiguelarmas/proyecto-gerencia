@@ -128,3 +128,40 @@ test('cerrar sesión revoca el token en el servidor', async () => {
   assert.equal((await app.post('/api/auth/logout', {}, c.token)).status, 200);
   assert.equal((await app.get('/api/auth/me', c.token)).status, 401);
 });
+
+// ---------- Privileged users from env ----------
+
+test('sin variables de entorno no se siembra ningún administrador ni estilista', () => {
+  const { seedPrivilegedUsers } = require('../backend/repos/bootstrap');
+  const data = { users: [{ id: 'usr_demo_01', email: 'demo@theclothesbox.co', role: 'CLIENT' }] };
+  assert.deepEqual(seedPrivilegedUsers(data, {}), []);
+  assert.deepEqual(seedPrivilegedUsers(data, { ADMIN_EMAIL: 'a@b.co' }), [], 'sin contraseña tampoco');
+  assert.equal(data.users.length, 1);
+  assert.ok(!data.users.some(u => u.role === 'ADMIN' || u.role === 'STYLIST'));
+});
+
+test('con variables de entorno se siembran ADMIN, STYLIST y WAREHOUSE solo si no existen', () => {
+  const { seedPrivilegedUsers } = require('../backend/repos/bootstrap');
+  const { verifyPassword } = require('../backend/lib/crypto');
+  const existing = { id: 'usr_x', email: 'jefa@tcb.co', role: 'CLIENT', passwordHash: 'sal:hash' };
+  const data = { users: [existing] };
+  const source = {
+    ADMIN_EMAIL: 'Jefa@tcb.co', ADMIN_PASSWORD: 'otra-clave-1',
+    STYLIST_EMAIL: 'est@tcb.co', STYLIST_PASSWORD: 'clave-est-1',
+    WAREHOUSE_EMAIL: 'bod@tcb.co', WAREHOUSE_PASSWORD: 'clave-bod-1'
+  };
+  const created = seedPrivilegedUsers(data, source);
+  assert.deepEqual(created.map(u => u.role), ['STYLIST', 'WAREHOUSE']);
+  assert.equal(existing.role, 'CLIENT', 'una cuenta existente nunca se escala ni se sobrescribe');
+  assert.equal(existing.passwordHash, 'sal:hash');
+  assert.ok(verifyPassword('clave-est-1', created[0].passwordHash));
+  assert.deepEqual(seedPrivilegedUsers(data, source), [], 'la segunda vez no crea nada');
+});
+
+test('el servidor de prueba entra con las cuentas sembradas por el helper', async () => {
+  for (const role of ['ADMIN', 'STYLIST', 'WAREHOUSE', 'CLIENT']) {
+    const token = await app.loginAs(role);
+    const me = await app.get('/api/auth/me', token);
+    assert.equal(me.body.user.role, role);
+  }
+});

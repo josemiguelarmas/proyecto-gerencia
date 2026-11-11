@@ -15,7 +15,7 @@ Orden y alcance, solo lo PARTIAL o MISSING:
 5. **F5 seguridad**: JWT con `timingSafeEqual`, `iss`/`aud`, 8 h y versión de token para revocar. Admin y estilista se siembran desde variables de entorno. Se quitan las credenciales de `frontend/` y del README. CORS con lista permitida, límite de body, `lib/validate.js`, rate limit de login, cabeceras de seguridad, rol WAREHOUSE y `requireRole`.
 6. **F6, F7, F9, F10**: tokens `tok_ok/tok_declined/tok_flaky` en el proveedor simulado. Los jobs se dividen en `run({now, store, adapters})` y no arrancan en pruebas. CI (ubuntu y windows), `Dockerfile`, `docs/staging.md` y los esqueletos de docs.
 
-Compuerta: suite en verde, prueba de falla deliberada, el servidor arranca solo con variables de entorno, y un grep de `admin123`, el secreto viejo y las credenciales demo da vacío.
+Compuerta: suite en verde, prueba de falla deliberada, el servidor arranca solo con variables de entorno, y un grep de la contraseña demo del admin, el secreto JWT viejo y las demás credenciales demo da vacío.
 
 ## Oleadas
 

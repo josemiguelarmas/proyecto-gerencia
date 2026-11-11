@@ -13,6 +13,18 @@ process.env.TCB_CATALOG_FILE = path.join(TMP_DIR, 'catalog.json');
 fs.copyFileSync(path.join(__dirname, '..', 'backend', 'data', 'seed', 'catalog.json'), process.env.TCB_CATALOG_FILE);
 // F5: el backend ya no trae un secreto JWT por defecto; esta prueba usa uno aleatorio.
 process.env.JWT_SECRET = require('crypto').randomBytes(32).toString('hex');
+// F5: las cuentas internas y la contraseña del cliente demo se siembran desde variables de
+// entorno (ya no hay contraseñas en el código). Esta prueba define las suyas, aleatorias.
+const TEST_PASSWORDS = {
+  admin: `Admin-${require('crypto').randomBytes(6).toString('hex')}-1`,
+  stylist: `Estilista-${require('crypto').randomBytes(6).toString('hex')}-1`,
+  demo: `Demo-${require('crypto').randomBytes(6).toString('hex')}-1`
+};
+process.env.ADMIN_EMAIL = 'admin@theclothesbox.co';
+process.env.ADMIN_PASSWORD = TEST_PASSWORDS.admin;
+process.env.STYLIST_EMAIL = 'estilista@theclothesbox.co';
+process.env.STYLIST_PASSWORD = TEST_PASSWORDS.stylist;
+process.env.DEMO_CLIENT_PASSWORD = TEST_PASSWORDS.demo;
 
 const { startServer } = require('../backend/server');
 const { db } = require('../backend/database');
@@ -117,7 +129,7 @@ async function runTests() {
     // 3. Login de usuario demo cliente
     const loginRes = await request('POST', '/api/auth/login', {
       email: 'demo@theclothesbox.co',
-      password: 'demo123'
+      password: TEST_PASSWORDS.demo
     });
     assert.ok(loginRes.status === 200, 'Demo login should succeed');
     assert.ok(loginRes.body.token, 'Should return JWT token');
@@ -153,7 +165,7 @@ async function runTests() {
     const proposedBoxRes = await request('GET', '/api/boxes/current', null, newToken);
     assert.strictEqual(proposedBoxRes.body.box.status, 'PROPOSED');
     assert.strictEqual(proposedBoxRes.body.box.items, null, 'Prendas ocultas también en PROPOSED');
-    const stylistLogin = await request('POST', '/api/auth/login', { email: 'estilista@theclothesbox.co', password: 'estilista123' });
+    const stylistLogin = await request('POST', '/api/auth/login', { email: 'estilista@theclothesbox.co', password: TEST_PASSWORDS.stylist });
     const stylistToken = stylistLogin.body.token;
     const approveRes = await request('POST', `/api/stylist/boxes/${proposedBoxRes.body.box.id}/approve`, {}, stylistToken);
     assert.strictEqual(approveRes.status, 200);
@@ -225,7 +237,7 @@ async function runTests() {
     // 12. Login de Administrador
     const adminLoginRes = await request('POST', '/api/auth/login', {
       email: 'admin@theclothesbox.co',
-      password: 'admin123'
+      password: TEST_PASSWORDS.admin
     });
     assert.ok(adminLoginRes.status === 200, 'Admin login should succeed');
     assert.ok(adminLoginRes.body.user.role === 'ADMIN', 'Admin user must have ADMIN role');

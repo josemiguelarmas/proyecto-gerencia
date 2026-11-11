@@ -19,7 +19,7 @@ Criterio: **DONE** = comportamiento en la app servida (`frontend/` + `backend/`)
 | Secreto JWT por defecto en código | PRESENTE | `backend/auth.js:4` |
 | Comparación de firma no constante | PRESENTE | `backend/auth.js:24` |
 | Tokens de 72 h sin revocación | PRESENTE | `backend/auth.js:6,44` |
-| `admin123` re-sembrado al arrancar | PRESENTE | `backend/database.js:66-80,154,171` |
+| Contraseña demo del admin (omitida) re-sembrada al arrancar | PRESENTE | `backend/database.js:66-80,154,171` |
 | Credenciales en frontend y README | PRESENTE | `authView.js:26,82`, `adminView.js:82,886`, `README.md:58` |
 | CORS `*` | PRESENTE | `backend/routes.js:128,189` |
 | Registro sin validar formato de correo | PRESENTE | `backend/routes.js:229-253` |

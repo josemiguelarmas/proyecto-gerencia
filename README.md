@@ -50,15 +50,18 @@
 
 ---
 
-## 3. Credenciales de Acceso para Demostración
+## 3. Cuentas de acceso
 
-| Rol | Correo Electrónico | Contraseña | Destino Inicial | Acceso Rápido |
-| :--- | :--- | :--- | :--- | :--- |
-| **Cliente** | `demo@theclothesbox.co` | `demo123` | `#/caja` | Botón *"Entrar Cliente"* en login |
-| **Administrador** | `admin@theclothesbox.co` | `admin123` | `#/admin` | Botón *"Entrar Admin"* en login |
-| **Estilista** (Sprint 2) | `estilista@theclothesbox.co` | `estilista123` | `#/estilista` | Botón *"Cuenta Estilista"* en login |
+No hay contraseñas en el código ni en este README. Las cuentas internas se crean al arrancar desde variables de entorno, solo si ese correo todavía no existe (nunca se sobrescribe una cuenta):
 
-El cliente demo tiene una suscripción activa pagada con la tarjeta de prueba 4242 (SIMULADO).
+| Rol | Variables | Destino inicial |
+| :--- | :--- | :--- |
+| **Administrador** (`ADMIN`) | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | `#/admin` |
+| **Estilista** (`STYLIST`) | `STYLIST_EMAIL`, `STYLIST_PASSWORD` | `#/estilista` |
+| **Bodega** (`WAREHOUSE`) | `WAREHOUSE_EMAIL`, `WAREHOUSE_PASSWORD` | rutas de despacho `/api/admin/boxes`, `/api/admin/dispatch` |
+| **Cliente demo** (`demo@theclothesbox.co`, de la semilla) | `DEMO_CLIENT_PASSWORD` (opcional) | `#/caja` |
+
+Sin esas variables las cuentas no existen y solo se puede usar el registro normal. El cliente demo tiene una suscripción activa pagada con la tarjeta de prueba 4242 (SIMULADO). Si tu `DATA_DIR` se creó antes de este cambio, todavía guarda las contraseñas demo viejas: borra `DATA_DIR/db.json` (se vuelve a crear desde la semilla) o cambia esas contraseñas.
 
 ---
 

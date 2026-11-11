@@ -19,7 +19,6 @@ TCB.views.box = (() => {
             <p class="muted">Debes iniciar sesión para consultar el estado de tu caja mensual.</p>
             <div style="margin-top:16px;display:flex;gap:12px;justify-content:center">
               <button type="button" class="btn btn--gold" data-login-trigger>Iniciar Sesión</button>
-              <button type="button" class="btn btn--ghost" data-demo-trigger>Entrar con Demo</button>
             </div>
           </div>
         </div>
@@ -495,17 +494,6 @@ TCB.views.box = (() => {
     // Iniciar sesión desde banner
     root.querySelector('[data-login-trigger]')?.addEventListener('click', () => {
       TCB.views.auth.openLoginModal();
-    });
-
-    root.querySelector('[data-demo-trigger]')?.addEventListener('click', async () => {
-      try {
-        await TCB.api.auth.login('demo@theclothesbox.co', 'demo123');
-        await TCB.state.loadUserSession();
-        TCB.state.toast('Sesión demo iniciada.');
-        window.location.hash = '#/caja';
-      } catch (e) {
-        TCB.state.toast('Error al entrar con demo', { type: 'danger' });
-      }
     });
 
     // Solicitar primera caja
