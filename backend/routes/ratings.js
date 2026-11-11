@@ -3,7 +3,7 @@
 // all ratings, send the rating reminder on demand and retrain the engine with pending
 // feedback (HU-11). Positive style signals are folded back into the subscriber profile.
 const { db } = require('../database');
-const { runReviewReminders } = require('../jobs');
+const { runReviewReminders } = require('../jobs/reviewReminder');
 const learning = require('../learning');
 const { sendJson, parseJsonBody } = require('../lib/http');
 

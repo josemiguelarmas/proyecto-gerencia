@@ -3,7 +3,7 @@ const url = require('url');
 const fs = require('fs');
 const path = require('path');
 const { handleApiRequest } = require('./routes');
-const { startJobs, stopJobs } = require('./jobs');
+const { startJobs, stopJobs } = require('./jobs/index');
 
 const FRONTEND_DIR = path.join(__dirname, '..', 'frontend');
 const PORT = process.env.PORT || 3000;

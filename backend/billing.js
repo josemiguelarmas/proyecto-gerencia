@@ -396,16 +396,25 @@ function billOne(sub, now) {
   return { subscriptionId: sub.id, result: 'FAILED_RETRY_SCHEDULED' };
 }
 
-// Cobro mensual. Se puede correr a diario: solo cobra lo vencido y una vez por periodo.
-function runRecurringBilling(now = new Date()) {
+// HU-12: la pausa termina sola al llegar su fecha. Devuelve las suscripciones reanudadas
+// (sin guardar: lo hace quien llama). runRecurringBilling la usa antes de cobrar.
+function resumeDuePauses(now = new Date()) {
   const results = [];
   db.data.subscriptions.forEach(sub => {
-    // HU-12: la pausa termina sola al llegar su fecha y el cobro sigue en la misma corrida.
     if (sub.status === 'PAUSED' && sub.pausedUntil && new Date(sub.pausedUntil) <= now) {
       Object.assign(sub, { status: 'ACTIVE', pausedUntil: null, resumedAt: now.toISOString() });
       notifyFailure(sub, 'SUBSCRIPTION_RESUMED', 'Tu plan se reanudó', 'terminó tu mes de pausa y tu plan está activo otra vez. Mensaje SIMULADO.');
       results.push({ subscriptionId: sub.id, result: 'RESUMED' });
     }
+  });
+  return results;
+}
+
+// Cobro mensual. Se puede correr a diario: solo cobra lo vencido y una vez por periodo.
+// Las pausas vencidas se reanudan primero, así el cobro sigue en la misma corrida.
+function runRecurringBilling(now = new Date()) {
+  const results = resumeDuePauses(now);
+  db.data.subscriptions.forEach(sub => {
     if (sub.status !== 'ACTIVE') return;
     const outcome = billOne(sub, now);
     if (outcome) results.push(outcome);
@@ -544,6 +553,7 @@ module.exports = {
   subscribe,
   updatePaymentMethod,
   runRecurringBilling,
+  resumeDuePauses,
   runInvoiceRetries,
   processPaymentWebhook,
   pause,

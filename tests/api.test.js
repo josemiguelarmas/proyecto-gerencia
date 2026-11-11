@@ -11,6 +11,8 @@ process.env.TCB_DB_FILE = path.join(TMP_DIR, 'db.json');
 process.env.TCB_OUTBOX_FILE = path.join(TMP_DIR, 'outbox.json');
 process.env.TCB_CATALOG_FILE = path.join(TMP_DIR, 'catalog.json');
 fs.copyFileSync(path.join(__dirname, '..', 'backend', 'data', 'seed', 'catalog.json'), process.env.TCB_CATALOG_FILE);
+// F7: con NODE_ENV=test no arrancan las tareas programadas; las pruebas las disparan a mano.
+process.env.NODE_ENV = 'test';
 // F5: el backend ya no trae un secreto JWT por defecto; esta prueba usa uno aleatorio.
 process.env.JWT_SECRET = require('crypto').randomBytes(32).toString('hex');
 // F5: las cuentas internas y la contraseña del cliente demo se siembran desde variables de

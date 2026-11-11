@@ -6,7 +6,9 @@ const { db } = require('../database');
 const { calculateFit } = require('../engine');
 const logistics = require('../logistics');
 const { sendJson } = require('../lib/http');
-const { UNAPPROVED_STATUSES, OPEN_BOX_STATUSES, NOT_APPROVED_ERROR, createCuratedBox } = require('../lib/boxes');
+const { UNAPPROVED_STATUSES, NOT_APPROVED_ERROR, createCuratedBox } = require('../lib/boxes');
+const clock = require('../lib/clock');
+const boxBatch = require('../jobs/boxBatch');
 
 // Current Box GET (CRITICAL RULE: Hides products until DELIVERED or RATED)
 function getCurrentBox({ res, authUser }) {
@@ -156,50 +158,9 @@ function getHistory({ res, authUser }) {
   return sendJson(res, 200, { history: deliveredBoxes });
 }
 
-// HU-06: genera la caja del mes para todos los suscriptores activos
+// HU-06: genera la caja del mes para todos los suscriptores activos (lógica en backend/jobs/boxBatch.js)
 function generateBatch({ res }) {
-  const now = new Date();
-  const monthKey = now.toISOString().slice(0, 7);
-  const generated = [];
-  const skipped = [];
-  db.data.users.filter(u => (u.role || 'CLIENT') === 'CLIENT').forEach(user => {
-    // HU-17: los suscriptores sintéticos de scripts/seed-demo.js no reciben cajas reales.
-    if (user.seedDemo) return skipped.push({ userId: user.id, reason: 'Dato de prueba' });
-    // HU-08/HU-12: solo suscripciones pagadas y al día; en pausa o en mora no reciben caja.
-    const sub = db.getSubscription(user.id);
-    const profile = db.getProfile(user.id);
-    if (sub.status !== 'ACTIVE' || !profile || !profile.done) {
-      return skipped.push({ userId: user.id, reason: sub.status === 'PAUSED' ? 'Suscripción en pausa' : sub.status === 'PAST_DUE' ? 'Pago pendiente' : 'Sin suscripción activa' });
-    }
-    if (sub.dunning) {
-      return skipped.push({ userId: user.id, reason: 'Cobro en reintento' });
-    }
-    const boxes = db.getUserBoxes(user.id);
-    const latest = boxes[0];
-    if (latest && OPEN_BOX_STATUSES.includes(latest.status)) {
-      return skipped.push({ userId: user.id, reason: `Tiene una caja en curso (${latest.status})` });
-    }
-    if (latest && (latest.createdAt || '').slice(0, 7) === monthKey) {
-      return skipped.push({ userId: user.id, reason: 'Ya tiene la caja de este mes' });
-    }
-    const { box, curated } = createCuratedBox(user.id, profile, {
-      cycle: (latest ? latest.cycle : 0) + 1,
-      address: (latest && latest.address) || profile.address || 'Cali, Colombia',
-      receivedIds: boxes.flatMap(b => b.itemIds || [])
-    });
-    generated.push({ userId: user.id, boxId: box.id, withinCap: curated.withinCap, complete: curated.missingSlots.length === 0 });
-  });
-  const pct = fn => (generated.length ? Math.round((generated.filter(fn).length / generated.length) * 100) : null);
-  return sendJson(res, 200, {
-    success: true,
-    month: monthKey,
-    generatedCount: generated.length,
-    skippedCount: skipped.length,
-    withinCapPct: pct(g => g.withinCap),
-    completePct: pct(g => g.complete),
-    generated,
-    skipped
-  });
+  return sendJson(res, 200, { success: true, ...boxBatch.run({ now: clock.now() }) });
 }
 
 module.exports = [

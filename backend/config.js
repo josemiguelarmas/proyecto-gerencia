@@ -53,9 +53,8 @@ module.exports = {
   MIN_AGE: 18,
   PASSWORD_RESET_TTL_MS: 60 * 60 * 1000,
   APP_BASE_URL: process.env.APP_BASE_URL || 'http://localhost:3000',
-  // HU-10: días desde la entrega para recordar la calificación, y frecuencia del job.
+  // HU-10: días desde la entrega para recordar la calificación.
   REVIEW_REMINDER_DAYS: Number(process.env.REVIEW_REMINDER_DAYS) || 3,
-  REVIEW_REMINDER_INTERVAL_MS: 60 * 60 * 1000,
   // HU-13: motivos de la encuesta de salida.
   CANCELLATION_REASONS: {
     precio: 'Precio',
@@ -67,7 +66,10 @@ module.exports = {
   // HU-08: reintentos del cobro recurrente, en días desde el primer fallo ("1,3,5").
   PAYMENT_RETRY_DAYS: (process.env.PAYMENT_RETRY_DAYS || '1,3,5').split(',').map(Number).filter(n => n > 0),
   PAYMENT_WEBHOOK_SECRET: process.env.PAYMENT_WEBHOOK_SECRET || 'whsec_simulado_desarrollo',
-  BILLING_INTERVAL_MS: 60 * 60 * 1000,
+  // F7: los jobs se revisan cada hora (backend/jobs/index.js). El lote mensual de cajas corre
+  // solo el día BOX_BATCH_DAY de cada mes (supuesto: día 1, pendiente de confirmar con el equipo).
+  JOBS_INTERVAL_MS: 60 * 60 * 1000,
+  BOX_BATCH_DAY: Number(process.env.BOX_BATCH_DAY) || 1,
   // HU-12: día del mes desde el que un cambio de plan ya no alcanza la próxima caja.
   SUBSCRIPTION_CUTOFF_DAY: Number(process.env.SUBSCRIPTION_CUTOFF_DAY) || 25,
   PAUSE_MONTHS: 1,

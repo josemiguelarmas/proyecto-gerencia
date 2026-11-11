@@ -255,11 +255,15 @@ Remove-Item Env:DATA_DIR
 | `SUBSCRIPTION_CUTOFF_DAY` | `25` | Día de corte para que un cambio de plan alcance la próxima caja. |
 | `RETURN_WINDOW_BUSINESS_DAYS` | `5` | Plazo del cambio por talla en días hábiles desde la entrega. |
 | `REVIEW_REMINDER_DAYS` | `3` | Días desde la entrega para recordar la calificación. |
+| `BOX_BATCH_DAY` | `1` | Día del mes en que el planificador arma el lote de cajas (supuesto por confirmar). |
 | `TCB_DB_FILE` | `DATA_DIR/db.json` | Archivo de la base. Las pruebas y los scripts lo usan para trabajar sobre una copia. |
 | `TCB_CATALOG_FILE` | `DATA_DIR/catalog.json` (copiado de `backend/data/seed/catalog.json`) | Archivo del catálogo. |
 | `TCB_OUTBOX_FILE` | `DATA_DIR/outbox.json` | Bandeja de salida de correos. |
 
 El umbral de alerta de churn (9 % por defecto) se cambia desde Panel → KPIs del mes y queda guardado en la base.
+
+### Tareas programadas
+Cada tarea es un módulo en `backend/jobs/` que exporta `run({ now })` y devuelve un resumen: recordatorio de calificación, cobro recurrente con reintentos, reanudación de pausas, reintento de facturas, ingesta de feedback, lote mensual de cajas, foto de KPI y revisión de conciliación de pagos. `backend/jobs/index.js` las revisa cada hora desde que arranca el servidor (las diarias corren una vez al día y el lote solo el día `BOX_BATCH_DAY`). Con `NODE_ENV=test` no se programa nada. Los botones del panel siguen llamando a los mismos endpoints `/api/admin/jobs/*` y `/api/admin/boxes/generate-batch`.
 
 ### Scripts
 ```bash
