@@ -32,6 +32,8 @@ function load(source = process.env) {
     SEED_DB_FILE: path.join(SEED_DIR, 'db.json'),
     SEED_CATALOG_FILE: path.join(SEED_DIR, 'catalog.json'),
     JWT_SECRET: source.JWT_SECRET || '',
+    // Session token life in hours (default 8).
+    JWT_TTL_HOURS: Number(source.JWT_TTL_HOURS) > 0 ? Number(source.JWT_TTL_HOURS) : 8,
     DATA_ENCRYPTION_KEY: source.DATA_ENCRYPTION_KEY || '',
     ADMIN_EMAIL: source.ADMIN_EMAIL || '',
     ADMIN_PASSWORD: source.ADMIN_PASSWORD || '',

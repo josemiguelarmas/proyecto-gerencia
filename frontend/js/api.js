@@ -74,7 +74,15 @@ TCB.api = (() => {
       verifyEmail: token => request('/api/auth/verify-email', { method: 'POST', body: { token } }),
       resendVerification: () => request('/api/auth/resend-verification', { method: 'POST' }),
       me: () => request('/api/auth/me'),
-      logout: () => {
+      // Revoca el token en el servidor (todas las sesiones) y lo borra del navegador.
+      logout: async () => {
+        if (getToken()) {
+          try {
+            await request('/api/auth/logout', { method: 'POST' });
+          } catch (e) {
+            // La sesión ya no era válida: basta con borrar el token local.
+          }
+        }
         setToken(null);
       }
     },

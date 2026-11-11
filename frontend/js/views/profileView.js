@@ -491,7 +491,7 @@ TCB.views.profile = (() => {
           try {
             const res = await TCB.api.account.remove(e.target.elements.password.value);
             close();
-            TCB.api.auth.logout();
+            TCB.api.setToken(null); // la cuenta ya no existe: no hay sesión que revocar
             TCB.state.set({ user: null, profile: null, currentBox: null });
             TCB.state.toast(res.message, { ms: 7000 });
             window.location.hash = '#/';

@@ -11,6 +11,8 @@ process.env.TCB_DB_FILE = path.join(TMP_DIR, 'db.json');
 process.env.TCB_OUTBOX_FILE = path.join(TMP_DIR, 'outbox.json');
 process.env.TCB_CATALOG_FILE = path.join(TMP_DIR, 'catalog.json');
 fs.copyFileSync(path.join(__dirname, '..', 'backend', 'data', 'seed', 'catalog.json'), process.env.TCB_CATALOG_FILE);
+// F5: el backend ya no trae un secreto JWT por defecto; esta prueba usa uno aleatorio.
+process.env.JWT_SECRET = require('crypto').randomBytes(32).toString('hex');
 
 const { startServer } = require('../backend/server');
 const { db } = require('../backend/database');
@@ -347,6 +349,9 @@ async function runSprint2Tests({ token, newToken, newEmail, adminToken, delivere
   assert.strictEqual(reuseRes.status, 400, 'El token no se puede reutilizar');
   const loginNew = await request('POST', '/api/auth/login', { email: newEmail, password: 'nuevaClave456' });
   assert.strictEqual(loginNew.status, 200);
+  // Ajuste F5: restablecer la contraseña revoca los tokens anteriores; se sigue con la sesión nueva.
+  assert.strictEqual((await request('GET', '/api/auth/me', null, newToken)).status, 401);
+  newToken = loginNew.body.token;
   console.log('✓ 21. HU-01: recuperación de contraseña (hash, 1 hora, un solo uso) funcionando');
 
   // 22. HU-01: token de recuperación vencido es rechazado

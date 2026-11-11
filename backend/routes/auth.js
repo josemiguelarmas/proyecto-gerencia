@@ -2,7 +2,7 @@
 // recovery and e-mail verification with single-use tokens, plus the authenticated "who am I"
 // and "resend verification" endpoints. Token signing and verification live in backend/auth.js.
 const { db, verifyPassword } = require('../database');
-const { signToken } = require('../auth');
+const { issueToken, revokeTokens } = require('../auth');
 const config = require('../config');
 const mail = require('../mail');
 const { sendJson, parseJsonBody } = require('../lib/http');
@@ -48,7 +48,7 @@ async function register({ req, res }) {
   const user = db.createUser(name, email, password, 'CLIENT', { birthDate, emailVerified: false });
   db.addConsent(user.id, { accepted: true, policyVersion });
   sendVerificationEmail(user);
-  const token = signToken({ userId: user.id });
+  const token = issueToken(user);
   return sendJson(res, 201, { token, user: publicUser(user) });
 }
 
@@ -84,6 +84,7 @@ async function resetPassword({ req, res }) {
     return sendJson(res, 400, { error: 'El enlace no es válido, ya se usó o venció. Solicita uno nuevo.' });
   }
   db.setPassword(record.userId, password);
+  revokeTokens(record.userId); // las sesiones abiertas con la contraseña anterior dejan de servir
   return sendJson(res, 200, { success: true, message: 'Tu contraseña fue actualizada. Ya puedes iniciar sesión.' });
 }
 
@@ -106,7 +107,7 @@ async function login({ req, res }) {
   if (!user || !verifyPassword(password, user.passwordHash)) {
     return sendJson(res, 401, { error: 'Credenciales inválidas. Verifica tu correo y contraseña.' });
   }
-  const token = signToken({ userId: user.id });
+  const token = issueToken(user);
   const profile = db.getProfile(user.id);
   return sendJson(res, 200, {
     token,
@@ -118,6 +119,12 @@ async function login({ req, res }) {
 function me({ res, authUser }) {
   const profile = db.getProfile(authUser.id);
   return sendJson(res, 200, { user: publicUser(db.findUserById(authUser.id)), profile });
+}
+
+// Cierra la sesión en todos los dispositivos: los tokens emitidos antes dejan de ser válidos.
+function logout({ res, authUser }) {
+  revokeTokens(authUser.id);
+  return sendJson(res, 200, { success: true, message: 'Cerraste tu sesión.' });
 }
 
 function resendVerification({ res, authUser }) {
@@ -136,5 +143,6 @@ module.exports = [
   { method: 'POST', path: '/api/auth/verify-email', public: true, handler: verifyEmail },
   { method: 'POST', path: '/api/auth/login', public: true, handler: login },
   { method: 'GET', path: '/api/auth/me', handler: me },
+  { method: 'POST', path: '/api/auth/logout', handler: logout },
   { method: 'POST', path: '/api/auth/resend-verification', handler: resendVerification }
 ];
