@@ -190,7 +190,7 @@ test('SCRUM-59: el job de conciliación consulta a la pasarela los cobros sin ev
   const base = { userId: 'usr_recon', plan: 'esencial', period: '2027-01-10', kind: 'RECURRING', amountCOP: 129900, feeCOP: charge.feeCOP, netCOP: 129900 - charge.feeCOP, status: 'APPROVED', provider: 'simulated' };
   const old = new Date(Date.now() - 2 * 86400000).toISOString();
   const matching = db.addPayment({ ...base, providerChargeId: charge.chargeId, idempotencyKey: 'r1', createdAt: old });
-  const wrongAmount = db.addPayment({ ...base, amountCOP: 199900, providerChargeId: charge.chargeId, idempotencyKey: 'r2', createdAt: old });
+  const wrongAmount = db.addPayment({ ...base, amountCOP: 199900, netCOP: 199900 - charge.feeCOP, providerChargeId: charge.chargeId, idempotencyKey: 'r2', createdAt: old });
   const unknown = db.addPayment({ ...base, providerChargeId: 'ch_sim_noexiste', idempotencyKey: 'r3', createdAt: old });
   const fresh = db.addPayment({ ...base, providerChargeId: charge.chargeId, idempotencyKey: 'r4' });
 
@@ -210,4 +210,57 @@ test('SCRUM-59: PAYMENT_WEBHOOK_SECRET es obligatorio si el proveedor no es simu
   assert.throws(() => config.resolveWebhookSecret({ provider: 'pasarela_real', secret: '' }), /PAYMENT_WEBHOOK_SECRET/);
   assert.equal(config.resolveWebhookSecret({ provider: 'pasarela_real', secret: 's3cret' }), 's3cret');
   assert.ok(config.resolveWebhookSecret({ provider: 'simulated', secret: '' }).length > 0, 'el simulado tiene secreto de desarrollo');
+});
+
+// ---------------------------------------------------------------- SCRUM-62 (sandbox)
+const mailsTo = (email, type) => require('../backend/adapters/mailer').sentInMemory().filter(m => m.to === email && m.type === type);
+
+test('SCRUM-62: cobro aprobado activa la suscripción, guarda la comisión en COP enteros y envía la confirmación', async () => {
+  const c = await newClient();
+  const res = await subscribe(c, { plan: 'estilo', paymentToken: 'tok_ok' });
+  assert.equal(res.status, 201);
+  assert.equal(res.body.subscription.status, 'ACTIVE');
+  const p = res.body.payment;
+  assert.equal(p.amountCOP, 199900);
+  assert.ok(Number.isInteger(p.feeCOP) && Number.isInteger(p.netCOP));
+  assert.equal(p.feeCOP, Math.round(199900 * 0.035));
+  assert.equal(p.netCOP, 199900 - p.feeCOP);
+  assert.equal(mailsTo(c.email, 'SUBSCRIPTION_CONFIRMED').length, 1);
+  const admin = await app.loginAs('ADMIN');
+  const report = (await app.get('/api/admin/payments', admin)).body.report;
+  assert.equal(report.feeRate, 0.035);
+  assert.equal(report.grossCOP - report.feeCOP, report.netCOP);
+  assert.equal((await app.get('/api/admin/payments', c.token)).status, 403);
+});
+
+test('SCRUM-62: cobro rechazado muestra el motivo y no activa la suscripción', async () => {
+  const c = await newClient();
+  const res = await subscribe(c, { paymentToken: 'tok_declined' });
+  assert.equal(res.status, 402);
+  assert.equal(res.body.reason, 'Fondos insuficientes');
+  assert.match(res.body.error, /no se activó/);
+  assert.equal(db.getSubscription(c.userId).status, 'NONE');
+  assert.equal(mailsTo(c.email, 'SUBSCRIPTION_CONFIRMED').length, 0);
+});
+
+test('SCRUM-62: el cobro mensual fallido se reintenta a +1, +3 y +5 días, avisa y termina en PAST_DUE', async () => {
+  const c = await newClient();
+  const card = gateway.tokenize({ number: '4000 0000 0000 0341', expMonth: 12, expYear: 2030, cvc: '123', holder: 'Ana' });
+  assert.equal((await subscribe(c, { paymentToken: card.token })).status, 201);
+  const sub = () => db.getSubscription(c.userId);
+  const t0 = new Date(new Date(sub().nextChargeAt).getTime() + 3600000);
+  const at = days => new Date(t0.getTime() + days * 86400000);
+  assert.deepEqual(config.PAYMENT_RETRY_DAYS, [1, 3, 5]);
+
+  billing.runRecurringBilling(t0);
+  assert.equal(sub().status, 'ACTIVE');
+  assert.equal(mailsTo(c.email, 'PAYMENT_RETRY_SCHEDULED').length, 1, 'aviso para actualizar el medio de pago');
+  billing.runRecurringBilling(at(1));
+  billing.runRecurringBilling(at(3));
+  assert.equal(sub().status, 'ACTIVE');
+  billing.runRecurringBilling(at(5));
+  assert.equal(sub().status, 'PAST_DUE');
+  assert.equal(mailsTo(c.email, 'PAYMENT_PAST_DUE').length, 1);
+  billing.runRecurringBilling(at(9));
+  assert.deepEqual(db.getPayments(c.userId).map(p => p.kind).reverse(), ['INITIAL', 'RECURRING', 'RETRY', 'RETRY', 'RETRY']);
 });
