@@ -13,7 +13,7 @@ const DB_FILE = env.DB_FILE;
 const CATALOG_FILE = env.CATALOG_FILE;
 
 // Colecciones de la base. Las de Sprint 2 se crean vacías en bases existentes.
-const COLLECTIONS = ['users', 'profiles', 'boxes', 'ratings', 'returns', 'consents', 'authTokens', 'subscriptions', 'cancellations', 'corrections', 'quizSessions', 'profileVersions', 'payments', 'invoices', 'alerts', 'inventoryMovements', 'dataRequests', 'settings'];
+const COLLECTIONS = ['users', 'profiles', 'boxes', 'ratings', 'returns', 'consents', 'authTokens', 'subscriptions', 'cancellations', 'corrections', 'quizSessions', 'profileVersions', 'payments', 'invoices', 'alerts', 'inventoryMovements', 'dataRequests', 'settings', 'feedbackEvents', 'modelVersions', 'kpiSnapshots'];
 
 function emptyData() {
   return Object.fromEntries(COLLECTIONS.map(c => [c, []]));
