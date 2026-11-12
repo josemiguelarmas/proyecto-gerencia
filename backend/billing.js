@@ -1,4 +1,10 @@
-// HU-08, HU-12 y HU-15: suscripción, cobros recurrentes, conciliación y facturación electrónica.
+// HU-08, HU-12, HU-13 y HU-15: suscripción, cobros recurrentes, conciliación y facturación electrónica.
+// Subscription state machine (TRANSITIONS, canTransition, assertTransition), subscribing with a
+// gateway token (verified e-mail required, cycle anchored to the start day), monthly charges with
+// retries then PAST_DUE, the idempotent signed webhook and the reconciliation job, pause/resume/
+// plan change with the cutoff day, cancellation with a retention offer, and invoices with their
+// retry queue. Interfaces for other streams: hasPendingCharge(userId) for HU-16 account deletion
+// and isCyclePaid(subscriptionId | userId, 'AAAA-MM') for HU-09 payment-gated dispatch.
 const { db } = require('./database');
 const config = require('./config');
 const mail = require('./adapters/mailer');
@@ -23,6 +29,17 @@ function addMonths(date, months) {
   const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
   d.setDate(Math.min(day, lastDay));
   return d;
+}
+
+// SCRUM-58: next billing date of a cycle anchored to the subscription day. Counting months
+// from the anchor (not from the last date) keeps a 31st anchor on the 31st when the month has it.
+function nextCycleDate(anchor, after) {
+  const limit = new Date(after);
+  for (let k = 1; k < 1200; k++) {
+    const candidate = addMonths(anchor, k);
+    if (candidate > limit) return candidate;
+  }
+  return addMonths(limit, 1);
 }
 
 function formatCOP(value) {
@@ -66,6 +83,8 @@ function publicSubscription(sub) {
   return {
     ...rest,
     hasPaymentMethod: Boolean(paymentToken),
+    cycleAnchor: sub.cycleAnchor || sub.startedAt || null,
+    nextBillingAt: sub.nextChargeAt || null,
     planName: plan ? plan.name : sub.plan,
     priceCOP: plan ? plan.priceCOP : null,
     pendingPlanName: sub.pendingPlan ? config.PLANS[sub.pendingPlan].name : null
@@ -109,8 +128,11 @@ function invoiceMailBody(invoice) {
   ].join(' ');
 }
 
+// SCRUM-98: every failed attempt leaves one log line (no personal data, only ids and the
+// provider error); the first one also opens an alert and e-mails the ops address.
 function alertTeam(invoice, error) {
   const message = `La factura ${invoice.number} (pago ${invoice.paymentId}) no se pudo emitir: ${error.message}`;
+  console.warn(`[ALERTA facturación] ${message} · intento ${invoice.attempts} · estado ${invoice.status}`);
   const existing = db.data.alerts.find(a => a.refId === invoice.id && !a.resolvedAt);
   if (existing) {
     existing.message = message;
@@ -189,8 +211,38 @@ function runInvoiceRetries(now = new Date()) {
 // HU-08: cobros, webhook y conciliación
 // ---------------------------------------------------------------
 
+// SCRUM-59: differences between our charge and the gateway's view of it (status, amount).
+function chargeMismatches(payment, remote) {
+  const mismatches = [];
+  if (remote.status !== payment.status) mismatches.push(`estado ${remote.status} ≠ ${payment.status}`);
+  if (Number(remote.amountCOP) !== payment.amountCOP) mismatches.push(`monto ${remote.amountCOP} ≠ ${payment.amountCOP}`);
+  return mismatches;
+}
+
+// Records the reconciliation result. A MISMATCH opens one alert for the team; OK closes it.
+function setReconciliation(payment, { status, detail = null, event = null, source }, now = new Date()) {
+  payment.reconciliation = { status, at: now.toISOString(), detail, event, source };
+  const open = db.data.alerts.find(a => a.type === 'PAYMENT_MISMATCH' && a.refId === payment.id && !a.resolvedAt);
+  if (status === 'MISMATCH' && !open) {
+    db.addAlert({ type: 'PAYMENT_MISMATCH', refId: payment.id, message: `El pago ${payment.id} no cuadra con la pasarela: ${detail || status}.` });
+  } else if (status === 'OK' && open) {
+    open.resolvedAt = now.toISOString();
+  }
+  db.save();
+}
+
+// A charge still PENDING locally (asynchronous gateway) takes the result the event confirms.
+function applyEventToPendingCharge(payment, data, now) {
+  if (payment.status !== 'PENDING' || !['APPROVED', 'DECLINED'].includes(data.status)) return;
+  const feeCOP = data.status === 'APPROVED' ? Math.round(payment.amountCOP * config.PAYMENT_FEE_RATE) : 0;
+  Object.assign(payment, { status: data.status, feeCOP, netCOP: payment.amountCOP - feeCOP, confirmedAt: now.toISOString() });
+  db.save();
+  if (payment.status === 'APPROVED' && !payment.invoiceId) invoiceForPayment(payment, now);
+}
+
 // Procesa un evento de la pasarela. Devuelve { status, body } para la respuesta HTTP.
-function processPaymentWebhook(rawBody, signature) {
+// Idempotente por id de evento: un evento ya aplicado responde 200 con duplicate: true.
+function processPaymentWebhook(rawBody, signature, now = new Date()) {
   if (!payments.verifyWebhook(rawBody, signature)) {
     return { status: 401, body: { error: 'Firma del webhook inválida.' } };
   }
@@ -200,21 +252,44 @@ function processPaymentWebhook(rawBody, signature) {
   } catch (e) {
     return { status: 400, body: { error: 'El cuerpo del webhook no es JSON válido.' } };
   }
+  if (!event || typeof event.id !== 'string' || !event.id) {
+    return { status: 400, body: { error: 'El evento no trae id.' } };
+  }
   const data = event.data || {};
   const payment = db.findPayment(p => p.providerChargeId === data.chargeId);
   if (!payment) return { status: 404, body: { error: 'Cobro no encontrado para conciliar.' } };
+  if ((payment.webhookEventIds || []).includes(event.id)) {
+    return { status: 200, body: { received: true, duplicate: true, paymentId: payment.id, reconciliation: payment.reconciliation } };
+  }
+  payment.webhookEventIds = [...(payment.webhookEventIds || []), event.id];
 
-  const mismatches = [];
-  if (data.status !== payment.status) mismatches.push(`estado ${data.status} ≠ ${payment.status}`);
-  if (Number(data.amountCOP) !== payment.amountCOP) mismatches.push(`monto ${data.amountCOP} ≠ ${payment.amountCOP}`);
-  payment.reconciliation = {
+  applyEventToPendingCharge(payment, data, now);
+  const mismatches = chargeMismatches(payment, data);
+  setReconciliation(payment, {
     status: mismatches.length ? 'MISMATCH' : 'OK',
-    at: new Date().toISOString(),
     detail: mismatches.join(' · ') || null,
-    event: event.type
-  };
-  db.save();
+    event: event.type,
+    source: 'webhook'
+  }, now);
   return { status: 200, body: { received: true, paymentId: payment.id, reconciliation: payment.reconciliation } };
+}
+
+// SCRUM-59: reconciliation job. Charges with no webhook after staleAfterMs are looked up in
+// the gateway (retrieveCharge): OK, MISMATCH, or MISSING when the gateway does not know them.
+function reconcilePendingCharges(now = new Date(), staleAfterMs = DAY_MS) {
+  const statusOf = p => (p.reconciliation && p.reconciliation.status) || 'PENDING';
+  const stale = db.getPayments().filter(p => statusOf(p) === 'PENDING' && now - new Date(p.createdAt) >= staleAfterMs);
+  stale.forEach(payment => {
+    const remote = payment.providerChargeId ? payments.retrieveCharge(payment.providerChargeId) : null;
+    if (!remote) {
+      setReconciliation(payment, { status: 'MISSING', detail: 'La pasarela no tiene este cobro.', source: 'job' }, now);
+      return;
+    }
+    applyEventToPendingCharge(payment, remote, now);
+    const mismatches = chargeMismatches(payment, remote);
+    setReconciliation(payment, { status: mismatches.length ? 'MISMATCH' : 'OK', detail: mismatches.join(' · ') || null, source: 'job' }, now);
+  });
+  return stale.map(p => p.id);
 }
 
 // El proveedor simulado entrega su webhook firmado en el acto, por la misma verificación que usa el endpoint.
@@ -264,6 +339,10 @@ function periodKey(date) {
 
 function subscribe(user, { plan, paymentToken, fiscal }, now = new Date()) {
   if (!config.PLANS[plan]) throw httpError(400, 'Elige un plan válido: Esencial o Estilo.');
+  // SCRUM-58: only a verified e-mail can subscribe (the flag comes from the verification link).
+  if (user.emailVerified === false) {
+    throw httpError(403, `Verifica tu correo antes de suscribirte. Te enviamos el enlace a ${user.email}; también puedes pedir uno nuevo desde "Mi Perfil".`, { code: 'EMAIL_NOT_VERIFIED' });
+  }
   const card = payments.describeToken(paymentToken);
   if (!card) throw httpError(400, 'Registra una tarjeta antes de pagar.');
   if (fiscal) {
@@ -296,6 +375,7 @@ function subscribe(user, { plan, paymentToken, fiscal }, now = new Date()) {
     cardBrand: card.brand,
     cardLast4: card.last4,
     startedAt: now.toISOString(),
+    cycleAnchor: now.toISOString(),
     nextChargeAt: addMonths(now, 1).toISOString(),
     pendingPlan: null,
     pendingPlanFrom: null,
@@ -326,7 +406,9 @@ function advanceAfterApproval(sub, payment, now) {
     status: 'ACTIVE',
     dunning: null,
     lastPaymentId: payment.id,
-    nextChargeAt: addMonths(sub.nextChargeAt || now, 1).toISOString(),
+    nextChargeAt: (sub.cycleAnchor
+      ? nextCycleDate(sub.cycleAnchor, sub.nextChargeAt || now)
+      : addMonths(sub.nextChargeAt || now, 1)).toISOString(),
     updatedAt: now.toISOString()
   });
   if (!payment.subscriptionId) payment.subscriptionId = sub.id;
@@ -516,6 +598,78 @@ function changePlan(userId, plan, now = new Date()) {
   return { subscription: updated, effect, message };
 }
 
+// ---------------------------------------------------------------
+// HU-12/HU-13 (SCRUM-83): cancelación con oferta de retención y encuesta opcional
+// ---------------------------------------------------------------
+
+// Without confirm === true nothing changes: the answer is the retention offer (pause 1 month
+// when the subscription can be paused). With it, the subscription is cancelled, future charges
+// stop and the optional exit survey is saved linked to the cancellation.
+function cancel(userId, { confirm, reason, comment } = {}, now = new Date()) {
+  const sub = db.getSubscription(userId);
+  assertTransition(sub, 'cancel');
+
+  if (confirm !== true) {
+    const canPause = canTransition(sub.status, 'pause') && !sub.dunning;
+    const resumesOn = canPause ? addMonths(sub.nextChargeAt || now, config.PAUSE_MONTHS).toISOString() : null;
+    return {
+      step: 'RETENTION_OFFER',
+      requiresConfirmation: true,
+      subscription: sub,
+      offer: canPause ? { type: 'PAUSE', months: config.PAUSE_MONTHS, resumesOn } : null,
+      message: canPause
+        ? `Antes de irte: puedes pausar ${config.PAUSE_MONTHS} mes sin cobro ni caja y se reanuda solo el ${formatDate(resumesOn)}. Si igual quieres cancelar, confírmalo.`
+        : 'Confirma que quieres cancelar tu suscripción.'
+    };
+  }
+
+  const cancellation = db.addCancellation(userId, {
+    plan: sub.plan,
+    reason: reason && config.CANCELLATION_REASONS[reason] ? reason : null,
+    comment: typeof comment === 'string' ? comment.trim().slice(0, 500) : ''
+  });
+  const updated = db.saveSubscription(userId, {
+    status: 'CANCELLED',
+    cancelledAt: cancellation.createdAt,
+    cancellationId: cancellation.id,
+    history: [...(sub.history || []), { type: 'CANCEL', plan: sub.plan, at: cancellation.createdAt }],
+    nextChargeAt: null,
+    pendingPlan: null,
+    pendingPlanFrom: null,
+    pausedUntil: null,
+    dunning: null
+  });
+  return {
+    step: 'CANCELLED',
+    subscription: updated,
+    cancellation,
+    message: 'Tu suscripción quedó cancelada. No se harán más cobros ni despachos.'
+  };
+}
+
+// ---------------------------------------------------------------
+// Interfaces for other streams (HU-16 deletion, HU-09 payment-gated dispatch)
+// ---------------------------------------------------------------
+
+// HU-16/SCRUM-102: true while money is still in flight for the user: a charge PENDING at the
+// gateway, a failed charge in its retry schedule (dunning) or a PAST_DUE subscription.
+// The account deletion route must refuse to delete while this is true.
+function hasPendingCharge(userId) {
+  const sub = db.getSubscription(userId);
+  if (sub.status === 'PAST_DUE' || sub.dunning) return true;
+  return db.getPayments(userId).some(p => p.status === 'PENDING');
+}
+
+// HU-09: whether the billing cycle `cycle` ('AAAA-MM') of a subscription is paid, that is,
+// there is an APPROVED charge whose due date (payment.period) falls in that month. `ref` is
+// a subscription id or a user id. It only looks at payments; dispatch also checks the status.
+function isCyclePaid(ref, cycle) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(cycle))) throw httpError(400, 'El ciclo debe tener el formato AAAA-MM.');
+  const sub = db.data.subscriptions.find(s => s.id === ref) || db.data.subscriptions.find(s => s.userId === ref);
+  if (!sub) return false;
+  return db.getPayments(sub.userId).some(p => p.status === 'APPROVED' && String(p.period || '').startsWith(cycle));
+}
+
 function paymentsReport() {
   const all = db.getPayments();
   const approved = all.filter(p => p.status === 'APPROVED');
@@ -529,7 +683,7 @@ function paymentsReport() {
     byMonth[month].feeCOP += p.feeCOP;
     byMonth[month].netCOP += p.netCOP;
   });
-  const reconciliation = { OK: 0, PENDING: 0, MISMATCH: 0 };
+  const reconciliation = { OK: 0, PENDING: 0, MISMATCH: 0, MISSING: 0 };
   all.forEach(p => { reconciliation[p.reconciliation.status] = (reconciliation[p.reconciliation.status] || 0) + 1; });
   return {
     feeRate: config.PAYMENT_FEE_RATE,
@@ -547,6 +701,7 @@ module.exports = {
   TRANSITIONS,
   canTransition,
   addMonths,
+  nextCycleDate,
   publicSubscription,
   validateFiscal,
   cleanFiscal,
@@ -556,10 +711,14 @@ module.exports = {
   resumeDuePauses,
   runInvoiceRetries,
   processPaymentWebhook,
+  reconcilePendingCharges,
   pause,
   resume,
   changePlan,
   planChangeEffect,
+  cancel,
+  hasPendingCharge,
+  isCyclePaid,
   assertTransition,
   paymentsReport
 };

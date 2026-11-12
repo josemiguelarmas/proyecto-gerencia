@@ -1,22 +1,24 @@
-// Job: payment reconciliation check (HU-08). Every charge is reconciled when the gateway's
-// signed webhook arrives (billing.processPaymentWebhook sets OK or MISMATCH). This job lists
-// the payments still PENDING after STALE_AFTER_MS and those in MISMATCH, so the team can
-// follow them up. Asking a real gateway for the missing events is stream D1's work.
+// Job: payment reconciliation (HU-08, SCRUM-59). Every charge is reconciled when the gateway's
+// signed webhook arrives (billing.processPaymentWebhook sets OK or MISMATCH). Charges still
+// PENDING after STALE_AFTER_MS are looked up in the gateway with retrieveCharge and marked OK,
+// MISMATCH (with an alert for the team) or MISSING. The job returns the ids it looked up and
+// the ones that still need a person to follow them up.
+const billing = require('../billing');
 const { db } = require('../database');
 const clock = require('../lib/clock');
 
 const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
 
 function run({ now = clock.now() } = {}) {
+  const stalePendingIds = billing.reconcilePendingCharges(now, STALE_AFTER_MS);
   const payments = db.getPayments();
-  const status = p => (p.reconciliation && p.reconciliation.status) || 'PENDING';
-  const stale = payments.filter(p => status(p) === 'PENDING' && now - new Date(p.createdAt) >= STALE_AFTER_MS);
-  const mismatched = payments.filter(p => status(p) === 'MISMATCH');
+  const idsWith = status => payments.filter(p => p.reconciliation && p.reconciliation.status === status).map(p => p.id);
   return {
     ranAt: now.toISOString(),
     checked: payments.length,
-    stalePendingIds: stale.map(p => p.id),
-    mismatchIds: mismatched.map(p => p.id)
+    stalePendingIds,
+    mismatchIds: idsWith('MISMATCH'),
+    missingIds: idsWith('MISSING')
   };
 }
 

@@ -313,7 +313,7 @@ TCB.views.profile = (() => {
       on('resume', () => runAction(root, () => TCB.api.subscription.resume()));
       on('plan', () => openPlanModal(root, sub, planChange, cfg));
       on('card', () => openCardModal(root, cfg));
-      on('cancel', () => (status === 'ACTIVE' && !sub.dunning ? openPauseInsteadModal(root) : openCancelModal(() => renderSubscription(root))));
+      on('cancel', () => startCancellation(root));
     } catch (e) {
       bodyEl.innerHTML = `<p class="small error">No pudimos cargar tu suscripción.</p>`;
     }
@@ -334,12 +334,23 @@ TCB.views.profile = (() => {
     });
   }
 
-  // HU-12: antes de cancelar se ofrece pausar como alternativa.
-  function openPauseInsteadModal(root) {
+  // HU-12 (SCRUM-83): el backend responde primero la oferta de retención; la cancelación solo
+  // se completa cuando la persona la confirma en la encuesta (confirm: true).
+  async function startCancellation(root) {
+    try {
+      const res = await TCB.api.subscription.cancel({});
+      if (res.offer && res.offer.type === 'PAUSE') openPauseInsteadModal(root, res.offer);
+      else openCancelModal(() => renderSubscription(root));
+    } catch (err) {
+      TCB.state.toast(err.data?.error || err.message, { type: 'danger' });
+    }
+  }
+
+  function openPauseInsteadModal(root, offer) {
     TCB.state.modal({
       eyebrow: 'Cancelar suscripción',
-      title: '¿Prefieres pausar un mes?',
-      body: '<p class="small">Si necesitas un respiro, pausa tu plan: no te cobramos ni despachamos el próximo mes y se reanuda solo. Tu perfil de estilo se conserva.</p>',
+      title: `¿Prefieres pausar ${offer.months === 1 ? 'un mes' : `${offer.months} meses`}?`,
+      body: `<p class="small">Si necesitas un respiro, pausa tu plan: no te cobramos ni despachamos el próximo mes y se reanuda solo el <strong>${day(offer.resumesOn)}</strong>. Tu perfil de estilo se conserva.</p>`,
       foot: '<button type="button" class="btn btn--quiet" data-cancel-anyway style="color:var(--danger)">Quiero cancelar</button><button type="button" class="btn btn--gold" data-pause>Pausar 1 mes</button>',
       onMount(modalEl, close) {
         modalEl.querySelector('[data-pause]').addEventListener('click', () => {
@@ -539,6 +550,7 @@ TCB.views.profile = (() => {
           const checked = form.querySelector('input[name="reason"]:checked');
           try {
             const res = await TCB.api.subscription.cancel({
+              confirm: true,
               reason: checked ? checked.value : null,
               comment: form.elements.comment.value.trim()
             });
