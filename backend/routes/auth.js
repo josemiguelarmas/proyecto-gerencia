@@ -44,11 +44,12 @@ async function register({ req, res }) {
   if (age < config.MIN_AGE) {
     return sendJson(res, 400, { error: `Debes ser mayor de ${config.MIN_AGE} años para crear una cuenta en The Clothes Box.`, code: 'UNDERAGE' });
   }
-  if (password.length < 6) {
-    return sendJson(res, 400, { error: 'La contraseña debe tener al menos 6 caracteres.' });
+  const passProblem = validate.passwordProblem(password);
+  if (passProblem) {
+    return sendJson(res, 400, { error: passProblem, code: 'WEAK_PASSWORD' });
   }
   if (db.findUserByEmail(email)) {
-    return sendJson(res, 409, { error: 'Este correo ya está registrado', code: 'EMAIL_EXISTS' });
+    return sendJson(res, 409, { error: 'Este correo ya está registrado', code: 'EMAIL_EXISTS', offer: 'login_or_recovery' });
   }
   const user = db.createUser(name, email, password, 'CLIENT', { birthDate, emailVerified: false });
   db.addConsent(user.id, { accepted: true, policyVersion });
@@ -81,8 +82,12 @@ async function forgotPassword({ req, res }) {
 
 async function resetPassword({ req, res }) {
   const { token, password } = await parseJsonBody(req);
-  if (!password || password.length < 6) {
-    return sendJson(res, 400, { error: 'La nueva contraseña debe tener al menos 6 caracteres.' });
+  if (!password) {
+    return sendJson(res, 400, { error: 'La contraseña es obligatoria.' });
+  }
+  const passProblem = validate.passwordProblem(password);
+  if (passProblem) {
+    return sendJson(res, 400, { error: passProblem, code: 'WEAK_PASSWORD' });
   }
   const record = db.consumeAuthToken(token, 'PASSWORD_RESET');
   if (!record) {
@@ -118,48 +123,43 @@ async function login({ req, res }) {
       retryAfterSec: waitSec
     });
   }
+
   const user = db.findUserByEmail(email);
-  if (!user || !verifyPassword(password, user.passwordHash)) {
+  if (!user || !user.passwordHash || !verifyPassword(password, user.passwordHash)) {
     rateLimit.recordLoginFailure(email, ip);
-    return sendJson(res, 401, { error: 'Credenciales inválidas. Verifica tu correo y contraseña.' });
+    return sendJson(res, 401, { error: 'Credenciales inválidas' });
   }
   rateLimit.clearLoginFailures(email, ip);
+
   const token = issueToken(user);
-  const profile = db.getProfile(user.id);
-  return sendJson(res, 200, {
-    token,
-    user: publicUser(user),
-    profile
-  });
+  return sendJson(res, 200, { token, user: publicUser(user) });
 }
 
-function me({ res, authUser }) {
-  const profile = db.getProfile(authUser.id);
-  return sendJson(res, 200, { user: publicUser(db.findUserById(authUser.id)), profile });
-}
-
-// Cierra la sesión en todos los dispositivos: los tokens emitidos antes dejan de ser válidos.
-function logout({ res, authUser }) {
-  revokeTokens(authUser.id);
-  return sendJson(res, 200, { success: true, message: 'Cerraste tu sesión.' });
+function getMe({ res, authUser }) {
+  return sendJson(res, 200, { user: publicUser(authUser) });
 }
 
 function resendVerification({ res, authUser }) {
-  const user = db.findUserById(authUser.id);
-  if (user.emailVerified !== false) {
+  if (authUser.emailVerified) {
     return sendJson(res, 200, { success: true, message: 'Tu correo ya está verificado.' });
   }
-  sendVerificationEmail(user);
-  return sendJson(res, 200, { success: true, message: `Te enviamos un nuevo enlace a ${user.email}.` });
+  sendVerificationEmail(authUser);
+  return sendJson(res, 200, { success: true, message: `Enviamos un nuevo enlace a ${authUser.email}. Vence en 24 horas.` });
+}
+
+function logout({ res, authUser }) {
+  revokeTokens(authUser.id);
+  return sendJson(res, 200, { success: true });
 }
 
 module.exports = [
   { method: 'POST', path: '/api/auth/register', public: true, handler: register },
+  { method: 'POST', path: '/api/auth/login', public: true, handler: login },
   { method: 'POST', path: '/api/auth/forgot', public: true, handler: forgotPassword },
   { method: 'POST', path: '/api/auth/reset', public: true, handler: resetPassword },
+  { method: 'POST', path: '/api/auth/verify', public: true, handler: verifyEmail },
   { method: 'POST', path: '/api/auth/verify-email', public: true, handler: verifyEmail },
-  { method: 'POST', path: '/api/auth/login', public: true, handler: login },
-  { method: 'GET', path: '/api/auth/me', handler: me },
-  { method: 'POST', path: '/api/auth/logout', handler: logout },
-  { method: 'POST', path: '/api/auth/resend-verification', handler: resendVerification }
+  { method: 'GET', path: '/api/auth/me', handler: getMe },
+  { method: 'POST', path: '/api/auth/resend-verification', handler: resendVerification },
+  { method: 'POST', path: '/api/auth/logout', handler: logout }
 ];

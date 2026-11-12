@@ -81,7 +81,7 @@ function authenticateRequest(req) {
   const user = db.findUserById(payload.userId);
   if (!user || user.deletedAt) return null;
   if ((payload.tv || 0) !== (user.tokenVersion || 0)) return null; // revoked by logout or reset
-  return { id: user.id, email: user.email, name: user.name, role: user.role || ROLES.CLIENT };
+  return { id: user.id, email: user.email, name: user.name, role: user.role || ROLES.CLIENT, emailVerified: Boolean(user.emailVerified), fiscal: user.fiscal || null };
 }
 
 // Invalidates every token the user holds (logout, password reset).

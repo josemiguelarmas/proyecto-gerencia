@@ -39,4 +39,40 @@ function pick(source, allowedKeys) {
   return out;
 }
 
-module.exports = { EMAIL_RE, PASSWORD_MIN_LENGTH, isEmail, passwordProblem, isIntInRange, isOneOf, pick };
+// Shared measure ranges (HU-04, SCRUM-34)
+const MEASURE_RANGES = {
+  height: { min: 140, max: 220, label: 'La estatura', unit: 'cm' },
+  weight: { min: 38, max: 180, label: 'El peso', unit: 'kg' },
+  chest: { min: 60, max: 160, label: 'El contorno de pecho', unit: 'cm' },
+  waist: { min: 50, max: 150, label: 'El contorno de cintura', unit: 'cm' },
+  hips: { min: 60, max: 160, label: 'El contorno de cadera', unit: 'cm' }
+};
+
+function validateMeasures(measures) {
+  if (!measures || typeof measures !== 'object') return { valid: true, errors: [] };
+  const errors = [];
+  for (const [field, range] of Object.entries(MEASURE_RANGES)) {
+    if (measures[field] !== undefined && measures[field] !== null && measures[field] !== '') {
+      const val = Number(measures[field]);
+      if (isNaN(val) || val < range.min || val > range.max) {
+        errors.push({
+          field,
+          message: `${range.label} debe estar entre ${range.min} y ${range.max} ${range.unit}.`
+        });
+      }
+    }
+  }
+  return { valid: errors.length === 0, errors };
+}
+
+module.exports = {
+  EMAIL_RE,
+  PASSWORD_MIN_LENGTH,
+  MEASURE_RANGES,
+  isEmail,
+  passwordProblem,
+  isIntInRange,
+  isOneOf,
+  pick,
+  validateMeasures
+};
