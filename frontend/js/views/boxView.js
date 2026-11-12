@@ -256,27 +256,18 @@ TCB.views.box = (() => {
         </div>
 
         <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:20px">
-          <div style="background:var(--paper-2);border:var(--hair);padding:18px;border-radius:var(--r-1)">
-            <span class="badge badge--dark">Outfit 01 · Urbano Diario</span>
-            <h4 style="font-weight:700;margin-top:8px">${items[0]?.name || 'Prenda superior'} + Jeans neutros</h4>
-            <p class="small muted" style="margin-top:6px">
-              Silueta relajada combinada con zapatillas limpias. Ideal para una jornada en campus universitario o café de trabajo en Granada.
-            </p>
-          </div>
-          <div style="background:var(--paper-2);border:var(--hair);padding:18px;border-radius:var(--r-1)">
-            <span class="badge badge--dark">Outfit 02 · Tarde / Clima Cálido</span>
-            <h4 style="font-weight:700;margin-top:8px">${items[1]?.name || 'Prenda inferior'} + Camiseta básica cruda</h4>
-            <p class="small muted" style="margin-top:6px">
-              Corte amplio y textil transpirable para la brisa de la tarde en Cali. Acompáñalo con sandalias o calzado ligero.
-            </p>
-          </div>
-          <div style="background:var(--paper-2);border:var(--hair);padding:18px;border-radius:var(--r-1)">
-            <span class="badge badge--dark">Outfit 03 · Salida Nocturna</span>
-            <h4 style="font-weight:700;margin-top:8px">${items[2]?.name || 'Tercera pieza'} + Capas monocromáticas</h4>
-            <p class="small muted" style="margin-top:6px">
-              Presencia contemporánea sin esfuerzo combinando texturas de sastrería y denim estructurado.
-            </p>
-          </div>
+          ${((box.outfits && box.outfits.length > 0) ? box.outfits : [
+            { name: 'Outfit 01 · Base', title: `${items[0]?.name || 'Prenda superior'} + ${items[1]?.name || 'Prenda inferior'}`, description: 'Silueta equilibrada combinando prendas de la caja.' },
+            { name: 'Outfit 02 · Capas', title: `${items[0]?.name || 'Prenda superior'} + ${items[2]?.name || 'Tercera pieza'}`, description: 'Look coordinado aprovechando las capas de la caja.' }
+          ]).map(o => `
+            <div style="background:var(--paper-2);border:var(--hair);padding:18px;border-radius:var(--r-1)">
+              <span class="badge badge--dark">${escapeHtml(o.name)}</span>
+              <h4 style="font-weight:700;margin-top:8px">${escapeHtml(o.title || (o.itemNames || []).join(' + '))}</h4>
+              <p class="small muted" style="margin-top:6px">
+                ${escapeHtml(o.description)}
+              </p>
+            </div>
+          `).join('')}
         </div>
       </section>
     `;

@@ -7,6 +7,8 @@ const config = require('../config');
 const mail = require('../adapters/mailer');
 const metrics = require('../metrics');
 const { sendJson, parseJsonBody } = require('../lib/http');
+const modelVersions = require('../modelVersions');
+const { evaluateFeedback } = require('../../scripts/eval-feedback');
 
 function dashboardMetrics({ res }) {
   const summary = db.getAdminMetrics();
@@ -49,10 +51,46 @@ function outbox({ res }) {
   return sendJson(res, 200, { provider: mail.name, messages: mail.list() });
 }
 
+// HU-06/HU-11 (SCRUM-78): Gestión de versiones de reglas del motor
+function listModelVersions({ res }) {
+  return sendJson(res, 200, {
+    active: modelVersions.getActiveVersion(),
+    versions: modelVersions.listVersions()
+  });
+}
+
+async function setActiveModelVersion({ req, res }) {
+  const { versionId } = await parseJsonBody(req);
+  if (!versionId) return sendJson(res, 400, { error: 'Falta versionId' });
+  try {
+    const updated = modelVersions.setActiveVersion(versionId);
+    return sendJson(res, 200, { success: true, active: updated });
+  } catch (err) {
+    return sendJson(res, 400, { error: err.message });
+  }
+}
+
+// HU-11 (SCRUM-77): Evaluación de cohortes antes y después del aprendizaje
+function getFeedbackEvaluation({ res }) {
+  const result = evaluateFeedback(db);
+  return sendJson(res, 200, result);
+}
+
+// HU-11 (SCRUM-75): Consulta de eventos normalizados de feedback
+function getFeedbackEvents({ res }) {
+  return sendJson(res, 200, {
+    events: db.data.feedbackEvents || []
+  });
+}
+
 module.exports = [
   { method: 'GET', path: '/api/admin/metrics', handler: dashboardMetrics },
   { method: 'GET', path: '/api/admin/clients', handler: listClients },
   { method: 'GET', path: '/api/admin/kpis', handler: monthlyKpis },
   { method: 'PUT', path: '/api/admin/settings/churn-threshold', handler: setChurnThreshold },
-  { method: 'GET', path: '/api/admin/outbox', handler: outbox }
+  { method: 'GET', path: '/api/admin/outbox', handler: outbox },
+  { method: 'GET', path: '/api/admin/model-versions', roles: ['ADMIN'], handler: listModelVersions },
+  { method: 'POST', path: '/api/admin/model-versions/active', roles: ['ADMIN'], handler: setActiveModelVersion },
+  { method: 'GET', path: '/api/admin/model/eval-feedback', roles: ['ADMIN'], handler: getFeedbackEvaluation },
+  { method: 'GET', path: '/api/admin/feedback-events', roles: ['ADMIN'], handler: getFeedbackEvents }
 ];
