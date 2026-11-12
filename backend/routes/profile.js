@@ -4,14 +4,12 @@
 const { db } = require('../database');
 const { sendJson, parseJsonBody } = require('../lib/http');
 const { createCuratedBox } = require('../lib/boxes');
-const { pick } = require('../lib/validate');
+const { pick, validateMeasures } = require('../lib/validate');
+const sizeEquivalences = require('../sizeEquivalences');
 
-// F5: campos que el suscriptor puede escribir. Todo lo demás (userId, version, done, pesos
-// aprendidos por el motor, fechas, rol...) lo maneja el servidor y se ignora si llega en el body.
-// Los campos del bloque "medidas" de profileView (heightCm, weightKg, ...) se aceptan tal como
-// hoy; unificarlos con measures es trabajo del stream B.
+// F5 & HU-04: campos que el suscriptor puede escribir.
 const PROFILE_FIELDS = [
-  'styles', 'occasions', 'fit', 'line', 'risk', 'plan', 'measures', 'address', 'styleWeights',
+  'styles', 'occasions', 'fit', 'line', 'risk', 'plan', 'measures', 'budgetRange', 'address', 'styleWeights',
   'heightCm', 'weightKg', 'bodyBuild', 'fitPreference', 'usualSizeTop', 'usualSizeBottom', 'referenceGarment'
 ];
 
@@ -24,6 +22,22 @@ async function saveProfile({ req, res, authUser }) {
   const raw = await parseJsonBody(req);
   const source = raw.source;
   const body = pick(raw, PROFILE_FIELDS);
+
+  // HU-04 (SCRUM-34): Server-side range validation for measures
+  if (body.measures) {
+    const { valid, errors } = validateMeasures(body.measures);
+    if (!valid) {
+      return sendJson(res, 422, { error: 'Medidas fuera de rango', errors });
+    }
+  }
+
+  // HU-04: Budget range validation
+  if (body.budgetRange) {
+    const { min, max } = body.budgetRange;
+    if (min !== undefined && max !== undefined && Number(min) > Number(max)) {
+      return sendJson(res, 422, { error: 'El presupuesto mínimo no puede ser mayor que el máximo.' });
+    }
+  }
 
   // HU-03: completar el quiz crea una nueva versión del perfil de estilo y cierra la sesión del quiz.
   let quizSession = null;
@@ -58,8 +72,25 @@ function getProfileHistory({ res, authUser }) {
   });
 }
 
+// HU-04 (SCRUM-35): Admin size equivalences management
+function getSizeEquivalences({ res }) {
+  return sendJson(res, 200, sizeEquivalences.getSizeEquivalences());
+}
+
+async function updateSizeEquivalences({ req, res }) {
+  const body = await parseJsonBody(req);
+  try {
+    const updated = sizeEquivalences.saveSizeEquivalences(body);
+    return sendJson(res, 200, { success: true, sizeEquivalences: updated });
+  } catch (err) {
+    return sendJson(res, 400, { error: err.message });
+  }
+}
+
 module.exports = [
   { method: 'GET', path: '/api/profile', handler: getProfile },
   { method: 'PUT', path: '/api/profile', handler: saveProfile },
-  { method: 'GET', path: '/api/profile/history', handler: getProfileHistory }
+  { method: 'GET', path: '/api/profile/history', handler: getProfileHistory },
+  { method: 'GET', path: '/api/admin/size-equivalences', roles: ['ADMIN'], handler: getSizeEquivalences },
+  { method: 'PUT', path: '/api/admin/size-equivalences', roles: ['ADMIN'], handler: updateSizeEquivalences }
 ];

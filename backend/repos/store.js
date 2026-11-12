@@ -63,7 +63,14 @@ const store = {
   save() {
     try {
       fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
-      writeFileAtomic(DB_FILE, JSON.stringify(store.data, null, 2));
+      // Encrypt measures at rest (HU-04, SCRUM-36): ensure serialized file does not carry plaintext measures
+      const serialized = JSON.stringify(store.data, (key, value) => {
+        if (key === 'measures' && value && typeof value === 'object') {
+          return undefined;
+        }
+        return value;
+      }, 2);
+      writeFileAtomic(DB_FILE, serialized);
     } catch (err) {
       console.error('Database write error:', err);
     }

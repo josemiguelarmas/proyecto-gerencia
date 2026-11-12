@@ -8,7 +8,10 @@ const { sendJson, parseJsonBody } = require('../lib/http');
 const { publicUser, sendVerificationEmail } = require('../lib/accounts');
 
 function getPolicy({ res }) {
-  return sendJson(res, 200, config.POLICY);
+  return sendJson(res, 200, {
+    ...config.POLICY,
+    draftNotice: 'BORRADOR pendiente de revisión legal'
+  });
 }
 
 // HU-16: rectificación de nombre y correo
@@ -47,6 +50,8 @@ module.exports = [
   { method: 'GET', path: '/api/policy', public: true, handler: getPolicy },
   { method: 'PUT', path: '/api/account', handler: updateAccount },
   { method: 'GET', path: '/api/profile/export', handler: exportData },
+  { method: 'GET', path: '/api/me/export', handler: exportData },
   { method: 'POST', path: '/api/account/delete', handler: deleteAccount },
-  { method: 'GET', path: '/api/admin/data-requests', handler: dataRequestsReport }
+  { method: 'DELETE', path: '/api/me', handler: deleteAccount },
+  { method: 'GET', path: '/api/admin/data-requests', roles: ['ADMIN'], handler: dataRequestsReport }
 ];
