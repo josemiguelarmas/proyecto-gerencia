@@ -15,7 +15,8 @@ function listBoxes({ res }) {
 
 async function changeBoxStatus({ req, res, match }) {
   const boxId = match[1];
-  const { status } = await parseJsonBody(req);
+  const body = await parseJsonBody(req);
+  const { status, carrier, trackingNumber, sustainablePackaging } = body;
   if (status === 'APPROVED' || status === 'PROPOSED') {
     return sendJson(res, 400, { error: 'La aprobación se hace desde la cola del estilista para dejar registro de quién y por qué.' });
   }
@@ -29,7 +30,23 @@ async function changeBoxStatus({ req, res, match }) {
     return sendJson(res, 409, { error: NOT_APPROVED_ERROR });
   }
   // HU-09: despachar genera la guía, descuenta stock y avisa al suscriptor.
-  const updated = logistics.advanceBox(target, status);
+  const updated = logistics.advanceBox(target, status, new Date(), { carrier, trackingNumber, sustainablePackaging });
+  return sendJson(res, 200, { success: true, box: updated });
+}
+
+// HU-09 (SCRUM-68): checklist de empaque con empaque sostenible
+async function packBox({ req, res, match }) {
+  const boxId = match[1];
+  const body = await parseJsonBody(req);
+  const target = db.getBoxById(boxId);
+  if (!target) return sendJson(res, 404, { error: 'Caja no encontrada.' });
+  if (UNAPPROVED_STATUSES.includes(target.status)) {
+    return sendJson(res, 409, { error: NOT_APPROVED_ERROR });
+  }
+  const updated = logistics.advanceBox(target, 'PREPARING', new Date(), {
+    packed: true,
+    sustainablePackaging: Boolean(body.sustainablePackaging)
+  });
   return sendJson(res, 200, { success: true, box: updated });
 }
 
@@ -52,6 +69,7 @@ const WAREHOUSE_ACCESS = {
 module.exports = [
   { method: 'GET', path: '/api/admin/boxes', handler: listBoxes },
   { method: 'POST', path: /^\/api\/admin\/boxes\/([^/]+)\/status$/, handler: changeBoxStatus },
+  { method: 'POST', path: /^\/api\/admin\/boxes\/([^/]+)\/pack$/, handler: packBox },
   { method: 'GET', path: '/api/admin/dispatch', handler: dispatchQueue },
   { method: 'GET', path: '/api/admin/inventory-movements', handler: inventoryMovements }
 ].map(route => ({ ...route, ...WAREHOUSE_ACCESS }));

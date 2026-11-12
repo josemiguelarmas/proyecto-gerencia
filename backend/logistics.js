@@ -99,16 +99,29 @@ function nextSequence(prefix) {
 // ---------------------------------------------------------------
 // HU-09: despacho, guía y notificaciones
 // ---------------------------------------------------------------
-function shipBox(box, now) {
+function shipBox(box, now, options = {}) {
   const user = db.findUserById(box.userId);
   const profile = db.getProfile(box.userId) || {};
-  const shipment = shipping.createShipment({
-    reference: box.id,
-    address: box.address,
-    recipient: user ? user.name : box.userId,
-    sequence: nextSequence(`TCB-${shipping.dateKey(now)}-`),
-    now
-  });
+
+  let shipment;
+  if (options.carrier && options.trackingNumber) {
+    shipment = shipping.manualShipment({
+      reference: box.id,
+      address: box.address,
+      recipient: user ? user.name : box.userId,
+      carrier: options.carrier,
+      trackingNumber: options.trackingNumber,
+      now
+    });
+  } else {
+    shipment = shipping.createShipment({
+      reference: box.id,
+      address: box.address,
+      recipient: user ? user.name : box.userId,
+      sequence: nextSequence(`TCB-${shipping.dateKey(now)}-`),
+      now
+    });
+  }
 
   box.shippedVariants = (box.itemIds || []).map(id => {
     const product = db.getProductById(id);
@@ -127,26 +140,49 @@ function shipBox(box, now) {
     trackingEvents: [...(box.trackingEvents || []), ...shipment.events]
   });
 
+  if (options.sustainablePackaging !== undefined) {
+    box.sustainablePackaging = Boolean(options.sustainablePackaging);
+  }
+
   if (user) {
     mail.send({
       to: user.email,
       type: 'BOX_SHIPPED',
       subject: `Tu caja #${box.cycle} va en camino`,
-      body: `Hola ${user.name}, despachamos tu caja #${box.cycle}. Número de guía: ${shipment.trackingNumber} (${shipment.carrier}). Entrega estimada: ${formatDate(shipment.estimatedDelivery)}, en ${box.address}. Sigue el envío en ${config.APP_BASE_URL}/#/caja.`
+      body: `Hola ${user.name}, despachamos tu caja #${box.cycle}. Número de guía: ${shipment.trackingNumber} (${shipment.carrier}). Entrega estimada: ${formatDate(shipment.estimatedDelivery || now)}, en ${box.address}. Sigue el envío en ${config.APP_BASE_URL}/#/caja.`
     });
   }
 }
 
 // Avanza la caja a nextStatus con sus efectos: guía y stock al despachar, avisos al despachar y entregar.
-function advanceBox(box, nextStatus, now = new Date()) {
+function advanceBox(box, nextStatus, now = new Date(), options = {}) {
   const blocked = dispatchBlock(box, nextStatus, now);
   if (blocked) throw httpError(409, blocked);
 
   const wasShipped = !NOT_SHIPPED_STATUSES.includes(box.status) || Boolean(box.shippedAt);
-  if (!wasShipped && (nextStatus === 'SHIPPED' || nextStatus === 'DELIVERED')) shipBox(box, now);
+  if (!wasShipped && (nextStatus === 'SHIPPED' || nextStatus === 'DELIVERED')) shipBox(box, now, options);
 
   if (nextStatus === 'PREPARING') {
     box.trackingEvents = [...(box.trackingEvents || []), { status: 'PREPARING', label: STEP_LABELS.PREPARING, at: now.toISOString() }];
+    if (options.sustainablePackaging !== undefined) {
+      box.sustainablePackaging = Boolean(options.sustainablePackaging);
+    }
+    if (options.packed) {
+      box.packed = true;
+      box.packedAt = now.toISOString();
+    }
+  }
+  if (nextStatus === 'IN_TRANSIT') {
+    box.trackingEvents = [...(box.trackingEvents || []), { status: 'IN_TRANSIT', label: 'En tránsito con la transportadora', at: now.toISOString() }];
+    const user = db.findUserById(box.userId);
+    if (user) {
+      mail.send({
+        to: user.email,
+        type: 'BOX_IN_TRANSIT',
+        subject: `Tu caja #${box.cycle} está en tránsito`,
+        body: `Hola ${user.name}, tu caja #${box.cycle} ya se encuentra en tránsito con ${box.carrier || 'la transportadora'} (guía ${box.trackingNumber || 'sin guía'}) hacia tu dirección.`
+      });
+    }
   }
   if (nextStatus === 'DELIVERED' && box.status !== 'DELIVERED') {
     box.deliveredAt = now.toISOString();

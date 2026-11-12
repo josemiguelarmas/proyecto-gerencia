@@ -13,13 +13,35 @@ function dateKey(date) {
   return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
 }
 
-// Suma días hábiles (lunes a viernes). No descuenta festivos.
+// Días festivos oficiales en Colombia para 2026 (Ley Emiliani).
+const COLOMBIAN_HOLIDAYS_2026 = new Set([
+  '2026-01-01', '2026-01-12', // Año Nuevo, Reyes Magos
+  '2026-03-23', // San José
+  '2026-04-02', '2026-04-03', // Jueves y Viernes Santo
+  '2026-05-01', '2026-05-18', // Día del Trabajo, Ascensión
+  '2026-06-08', '2026-06-15', '2026-06-29', // Corpus Christi, Sagrado Corazón, San Pedro y San Pablo
+  '2026-07-20', // Independencia
+  '2026-08-07', '2026-08-17', // Batalla de Boyacá, Asunción
+  '2026-10-12', // Día de la Raza
+  '2026-11-02', '2026-11-16', // Todos los Santos, Independencia de Cartagena
+  '2026-12-08', '2026-12-25'  // Inmaculada Concepción, Navidad
+]);
+
+function isHoliday(date) {
+  const d = new Date(date);
+  const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return COLOMBIAN_HOLIDAYS_2026.has(key);
+}
+
+// Suma días hábiles (lunes a viernes, descontando festivos oficiales colombianos).
 function addBusinessDays(date, days) {
   const d = new Date(date);
   let added = 0;
   while (added < days) {
     d.setDate(d.getDate() + 1);
-    if (d.getDay() !== 0 && d.getDay() !== 6) added++;
+    if (d.getDay() !== 0 && d.getDay() !== 6 && !isHoliday(d)) {
+      added++;
+    }
   }
   return d;
 }

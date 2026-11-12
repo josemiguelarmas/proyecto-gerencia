@@ -100,16 +100,23 @@ async function rateBox({ req, res, authUser, match }) {
 
   ratings.forEach(r => {
     if (!box.itemIds.includes(r.productId)) return;
-    const score = Number(r.score);
-    if (score >= 1 && score <= 5) {
-      const saved = db.addRating(authUser.id, boxId, r.productId, {
-        score,
-        liked: r.liked !== false,
-        styleFeedback: r.styleFeedback || '',
-        feedback: r.feedback || r.styleFeedback || '',
-        preferenceNotes: r.preferenceNotes || ''
-      });
-      savedRatings.push(saved);
+    const fitScore = parseScore(r.fitScore, 'ajuste');
+    const styleScore = parseScore(r.styleScore, 'estilo');
+    const partials = [fitScore, styleScore].filter(v => v !== undefined);
+    const score = parseScore(r.score, 'la prenda')
+      ?? (partials.length ? Math.round(partials.reduce((a, b) => a + b, 0) / partials.length) : undefined);
+    if (score === undefined) return;
+
+    const saved = db.addRating(authUser.id, boxId, r.productId, {
+      score,
+      fitScore,
+      styleScore,
+      liked: r.liked !== false,
+      styleFeedback: r.styleFeedback || '',
+      feedback: r.feedback || r.styleFeedback || '',
+      preferenceNotes: r.preferenceNotes || ''
+    });
+    savedRatings.push(saved);
 
       const prod = db.getProductById(r.productId);
       if (prod && score >= 4 && prod.styles && prod.styles[0]) {
@@ -118,7 +125,6 @@ async function rateBox({ req, res, authUser, match }) {
           profile.styles = [style, ...profile.styles].slice(0, 3);
         }
       }
-    }
   });
 
   db.updateBox(boxId, { status: 'RATED' });

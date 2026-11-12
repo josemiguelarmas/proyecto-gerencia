@@ -35,7 +35,9 @@ function getAdminMetrics() {
   const pendingReturns = data.returns.filter(r => r.status === 'PENDING_PICKUP' || r.status === 'PENDING').length;
 
   const allScores = data.ratings.map(r => r.score).filter(s => typeof s === 'number');
-  const averageScore = allScores.length > 0 ? (allScores.reduce((a, b) => a + b, 0) / allScores.length).toFixed(1) : '4.8';
+  const avgNumeric = allScores.length > 0 ? (allScores.reduce((a, b) => a + b, 0) / allScores.length) : null;
+  const averageScore = avgNumeric !== null ? avgNumeric.toFixed(1) : 'sin datos';
+  const averageSatisfactionAlert = avgNumeric !== null && avgNumeric < 4.0;
 
   const brands = [...new Set(catalog.map(p => p.brandName))];
 
@@ -49,6 +51,7 @@ function getAdminMetrics() {
     pendingReturns,
     returnRate: deliveredBoxes > 0 ? ((totalReturns / deliveredBoxes) * 100).toFixed(1) : '0.0',
     averageSatisfaction: averageScore,
+    averageSatisfactionAlert,
     totalProducts: catalog.length,
     brandsCount: brands.length,
     brandsList: brands

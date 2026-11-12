@@ -108,6 +108,18 @@ module.exports = {
     'La prenda debe estar sin uso, sin lavar y con sus etiquetas.',
     'La recogida y el envío de la nueva talla no tienen costo en Cali.'
   ],
+  RETURN_POLICY: {
+    version: '1.0.0',
+    status: 'pendiente de revisión legal',
+    windowBusinessDays: RETURN_WINDOW_BUSINESS_DAYS,
+    allowedReasons: ['TOO_SMALL', 'TOO_LARGE', 'FIT_ISSUE'],
+    conditions: [
+      `El cambio se pide dentro de ${RETURN_WINDOW_BUSINESS_DAYS} días hábiles desde la entrega de la caja.`,
+      'Solo aplica a problemas de talla o ajuste (muy pequeña, muy grande o de proporciones).',
+      'La prenda debe estar sin uso, sin lavar y con sus etiquetas.',
+      'La recogida y el envío de la nueva talla no tienen costo en Cali.'
+    ]
+  },
 
   // ---- Stream D1 (HU-08/12/13) ----
   // SCRUM-58: plan catalog for billing. targetCost is the target garment cost per box, by default
