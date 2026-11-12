@@ -128,8 +128,11 @@ function invoiceMailBody(invoice) {
   ].join(' ');
 }
 
+// SCRUM-98: every failed attempt leaves one log line (no personal data, only ids and the
+// provider error); the first one also opens an alert and e-mails the ops address.
 function alertTeam(invoice, error) {
   const message = `La factura ${invoice.number} (pago ${invoice.paymentId}) no se pudo emitir: ${error.message}`;
+  console.warn(`[ALERTA facturación] ${message} · intento ${invoice.attempts} · estado ${invoice.status}`);
   const existing = db.data.alerts.find(a => a.refId === invoice.id && !a.resolvedAt);
   if (existing) {
     existing.message = message;

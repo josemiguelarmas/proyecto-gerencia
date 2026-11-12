@@ -16,7 +16,7 @@ TCB.adminTabs.invoices = (() => {
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
           <div>
             <h2 class="display" style="font-size:var(--fs-xl)">Facturación electrónica <span class="badge badge--dark" style="vertical-align:middle">SIMULADO</span></h2>
-            <p class="small muted">Proveedor simulado · ambiente de habilitación DIAN${data.provider.failMode ? ' · <strong>INVOICING_FAIL=1 activo</strong>' : ''}.</p>
+            <p class="small muted">Proveedor simulado · ambiente de habilitación DIAN${data.provider.failMode ? ' · <strong>INVOICING_FAIL=1 activo</strong>' : ''}.${data.alertEmail ? ` Las alertas van a <span class="mono">${data.alertEmail}</span> y al log del servidor.` : ''}</p>
           </div>
           <button type="button" class="btn btn--ghost btn--sm" id="btn-run-invoice-retries">Reintentar facturas pendientes</button>
         </div>

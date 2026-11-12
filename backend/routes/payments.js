@@ -3,6 +3,7 @@
 // payments, gateway fees and reconciliation, invoices with their retry queue and alerts, plus
 // the on-demand recurring billing and invoice retry jobs. Card data is never stored here.
 const { db } = require('../database');
+const config = require('../config');
 const billing = require('../billing');
 const invoicing = require('../adapters/invoicing');
 const { sendJson, readRawBody, parseJsonBody, parseNow } = require('../lib/http');
@@ -45,6 +46,7 @@ function invoicesReport({ res }) {
     invoices: db.getInvoices(),
     alerts: db.getAlerts(),
     openAlerts: db.getAlerts().filter(a => !a.resolvedAt).length,
+    alertEmail: config.TEAM_ALERT_EMAIL,
     provider: { name: 'simulated', environment: 'HABILITACION', failMode: invoicing.isDown() }
   });
 }

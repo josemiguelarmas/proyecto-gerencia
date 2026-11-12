@@ -90,7 +90,8 @@ module.exports = {
   IVA_RATE: 0.19,
   INVOICE_PREFIX: 'SETT',
   INVOICE_RETRY_MINUTES: [5, 30, 120],
-  TEAM_ALERT_EMAIL: 'operaciones@theclothesbox.co',
+  // SCRUM-98: ops address for invoicing alerts (OPS_ALERT_EMAIL overrides the default).
+  TEAM_ALERT_EMAIL: process.env.OPS_ALERT_EMAIL || 'operaciones@theclothesbox.co',
   ISSUER: { name: 'The Clothes Box S.A.S. (SIMULADO)', nit: '900000000-0', city: 'Cali' },
   FISCAL_DOC_TYPES: { CC: 'Cédula de ciudadanía', CE: 'Cédula de extranjería', NIT: 'NIT', PA: 'Pasaporte' },
   RETURN_WINDOW_BUSINESS_DAYS,
