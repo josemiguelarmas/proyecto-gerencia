@@ -1,15 +1,17 @@
 // Stylist review routes (HU-07), reachable by STYLIST and ADMIN through the /api/stylist/
 // guard in routes/index.js: the queue of proposed boxes, in-stock alternatives for a garment,
 // and the approve, replace and reject actions. Every action is written to the box review log,
-// and corrections are stored so the engine can learn from them (HU-11).
+// and corrections are stored so the engine can learn from them (HU-11, SCRUM-55).
 const { db } = require('../database');
 const { calculateFit, curateBox, explainProduct } = require('../engine');
 const { stockInSize } = require('../catalog');
 const { sendJson, parseJsonBody } = require('../lib/http');
+const { assertTransition, BoxTransitionError } = require('../domain/boxStateMachine');
 
 function logReview(box, user, action, reason, details = {}) {
   const entry = { action, by: user.id, byName: user.name, role: user.role, at: new Date().toISOString(), reason: reason || '', ...details };
   box.reviewLog = [...(box.reviewLog || []), entry];
+  box.box_changes = box.reviewLog; // alias for Jira acceptance criteria SCRUM-53
   return entry;
 }
 
@@ -47,9 +49,12 @@ function stylistBoxView(box) {
   };
 }
 
-function getQueue({ res }) {
+function getQueue({ req, res }) {
+  const url = new URL(req.url, 'http://localhost');
+  let status = url.searchParams.get('status') || 'PROPOSED';
+  if (status === 'PENDING_REVIEW') status = 'PROPOSED';
   const boxes = db.data.boxes
-    .filter(b => b.status === 'PROPOSED')
+    .filter(b => b.status === status)
     .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
     .map(stylistBoxView);
   return sendJson(res, 200, { boxes });
@@ -72,14 +77,26 @@ async function reviewBox({ req, res, authUser, match }) {
   const [, boxId, action] = match;
   const box = db.getBoxById(boxId);
   if (!box) return sendJson(res, 404, { error: 'Caja no encontrada.' });
+
+  // SCRUM-53: state machine validation
   if (box.status !== 'PROPOSED') {
     return sendJson(res, 409, { error: `Solo se pueden revisar cajas propuestas. Esta caja está en ${box.status}.` });
   }
+
   const body = await parseJsonBody(req);
   const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
   const profile = db.getProfile(box.userId) || {};
 
   if (action === 'approve') {
+    try {
+      assertTransition(box.status, 'APPROVED', authUser.role);
+    } catch (err) {
+      if (err instanceof BoxTransitionError) {
+        return sendJson(res, err.status, { error: err.message, code: err.code });
+      }
+      throw err;
+    }
+
     logReview(box, authUser, 'APPROVE', reason);
     const updated = db.updateBox(box.id, { status: 'APPROVED', approvedAt: new Date().toISOString(), approvedBy: authUser.id });
     return sendJson(res, 200, { success: true, message: 'Caja aprobada. Queda lista para despacho.', box: stylistBoxView(updated) });
@@ -90,7 +107,8 @@ async function reviewBox({ req, res, authUser, match }) {
   }
 
   if (action === 'replace') {
-    const { itemId, newProductId } = body;
+    const itemId = body.itemId || body.removedProductId;
+    const newProductId = body.newProductId || body.variantId;
     if (!box.itemIds.includes(itemId)) {
       return sendJson(res, 400, { error: 'La prenda a reemplazar no está en esta caja.' });
     }
@@ -111,7 +129,19 @@ async function reviewBox({ req, res, authUser, match }) {
       return sum + (p ? p.wholesalePriceCOP || 0 : 0);
     }, 0);
     logReview(box, authUser, 'REPLACE', reason, { removedProductId: itemId, addedProductId: newProductId });
-    db.addCorrection({ type: 'REPLACE', boxId: box.id, subscriberId: box.userId, stylistId: authUser.id, removedProductId: itemId, addedProductId: newProductId, reason });
+
+    // SCRUM-55: Training example for HU-11 with profile snapshot
+    db.addCorrection({
+      type: 'REPLACE',
+      boxId: box.id,
+      subscriberId: box.userId,
+      stylistId: authUser.id,
+      removedProductId: itemId,
+      addedProductId: newProductId,
+      reason,
+      profileSnapshot: JSON.parse(JSON.stringify(profile))
+    });
+
     const updated = db.updateBox(box.id, { itemIds, recommendations, totalCostCOP, withinCap: box.targetCostCOP ? totalCostCOP <= box.targetCostCOP : null });
     return sendJson(res, 200, {
       success: true,
@@ -121,9 +151,29 @@ async function reviewBox({ req, res, authUser, match }) {
   }
 
   // reject: la propuesta se descarta y el motor arma una nueva sin esas prendas.
+  try {
+    assertTransition(box.status, 'REJECTED', authUser.role);
+  } catch (err) {
+    if (err instanceof BoxTransitionError) {
+      return sendJson(res, err.status, { error: err.message, code: err.code });
+    }
+    throw err;
+  }
+
   const rejectedIds = box.itemIds.slice();
   logReview(box, authUser, 'REJECT', reason, { rejectedProductIds: rejectedIds });
-  db.addCorrection({ type: 'REJECT', boxId: box.id, subscriberId: box.userId, stylistId: authUser.id, removedProductIds: rejectedIds, reason });
+
+  // SCRUM-55: Training example for HU-11 with profile snapshot
+  db.addCorrection({
+    type: 'REJECT',
+    boxId: box.id,
+    subscriberId: box.userId,
+    stylistId: authUser.id,
+    removedProductIds: rejectedIds,
+    reason,
+    profileSnapshot: JSON.parse(JSON.stringify(profile))
+  });
+
   const received = db.getUserBoxes(box.userId).filter(b => b.id !== box.id).flatMap(b => b.itemIds || []);
   const curated = curateBox(profile, db.catalog, received, { excludeIds: rejectedIds });
   const updated = db.updateBox(box.id, {
@@ -143,6 +193,7 @@ async function reviewBox({ req, res, authUser, match }) {
 
 module.exports = [
   { method: 'GET', path: '/api/stylist/queue', handler: getQueue },
+  { method: 'GET', path: '/api/stylist/boxes', handler: getQueue },
   { method: 'GET', path: /^\/api\/stylist\/boxes\/([^/]+)\/alternatives$/, handler: getAlternatives },
   { method: 'POST', path: /^\/api\/stylist\/boxes\/([^/]+)\/(approve|replace|reject)$/, handler: reviewBox }
 ];
