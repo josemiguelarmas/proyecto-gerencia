@@ -63,3 +63,13 @@ SCRUM-96 | DONE | e8f51d8 | tests/invoicing.test.js
 SCRUM-97 | DONE | e8f51d8 | tests/invoicing.test.js
 SCRUM-98 | DONE | e8f51d8 | tests/invoicing.test.js
 SCRUM-99 | DONE | e8f51d8 | tests/invoicing.test.js
+SCRUM-44 | DONE | f9a21eb | tests/engine.test.js (seed/style-rules.json)
+SCRUM-45 | DONE | 2a0db7a | tests/engine.test.js (curateBox hard constraints)
+SCRUM-46 | DONE | f9a21eb | tests/engine.test.js (+ frontend/js/views/boxView.js)
+SCRUM-47 | DONE | 2a0db7a | tests/engine.test.js (+ tests/api.test.js test 39)
+SCRUM-48 | DONE | 2a0db7a | tests/engine.test.js (persisted recommendations explanation)
+SCRUM-49 | DONE | d565917 | scripts/eval-recommender.js (+ tests/engine.test.js)
+SCRUM-75 | DONE | d565917 | tests/engine.test.js (db.data.feedbackEvents)
+SCRUM-76 | DONE | d565917 | tests/engine.test.js (applyRating high/low score updates)
+SCRUM-77 | DONE | d565917 | scripts/eval-feedback.js (+ tests/engine.test.js)
+SCRUM-78 | DONE | f9a21eb | tests/engine.test.js (modelVersions)
