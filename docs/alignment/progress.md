@@ -34,6 +34,17 @@ SCRUM-101 | DONE | b402e3c | tests/accounts.test.js (+ frontend/js/views/profile
 SCRUM-102 | DONE | b402e3c | tests/accounts.test.js (+ tests/billing.test.js)
 SCRUM-103 | DONE | b402e3c | tests/accounts.test.js (+ tests/api.test.js test 63)
 SCRUM-104 | DONE | b402e3c | tests/accounts.test.js (+ tests/api.test.js test 65)
+SCRUM-26 | DONE | 403fd8e | tests/quiz-stylist.test.js (seed/quiz.json & GET /api/quiz)
+SCRUM-27 | DONE | 403fd8e | tests/quiz-stylist.test.js (style weights in 0..1 validation)
+SCRUM-28 | DONE | 403fd8e | tests/quiz-stylist.test.js (+ frontend/js/views/onboardingView.js)
+SCRUM-29 | DONE | 403fd8e | tests/quiz-stylist.test.js (per-question resume PUT /api/quiz/progress)
+SCRUM-30 | DONE | 403fd8e | tests/quiz-stylist.test.js (+ tests/api.test.js test 41)
+SCRUM-31 | DONE | aba972f | docs/usability-test-protocol.md
+SCRUM-51 | DONE | 88d2d43 | tests/quiz-stylist.test.js (GET /api/stylist/boxes queue)
+SCRUM-52 | DONE | 88d2d43 | tests/quiz-stylist.test.js (+ tests/api.test.js tests 34, 36)
+SCRUM-53 | DONE | 88d2d43 | tests/quiz-stylist.test.js (state machine guards, replace & approve)
+SCRUM-54 | DONE | 88d2d43 | tests/quiz-stylist.test.js (STYLIST role 401/403 checks)
+SCRUM-55 | DONE | 88d2d43 | tests/quiz-stylist.test.js (training_examples with profile snapshot)
 SCRUM-57 | DONE | 5dd0ade | tests/billing.test.js (+ tests/api.test.js test 43)
 SCRUM-58 | DONE | 3bfd9f0 | tests/billing.test.js
 SCRUM-59 | DONE | c1bdda3 | tests/billing.test.js (+ tests/jobs.test.js reconciliation)
