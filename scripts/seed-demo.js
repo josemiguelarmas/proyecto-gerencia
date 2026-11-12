@@ -24,7 +24,7 @@ function rng(seed) {
 }
 
 function resetSeed(db) {
-  const ids = new Set(db.data.users.filter(u => u.seedDemo).map(u => u.id));
+  const ids = new Set(db.data.users.filter(u => u.seedDemo || u.isDemo).map(u => u.id));
   ['users'].forEach(c => { db.data[c] = db.data[c].filter(u => !ids.has(u.id)); });
   ['profiles', 'subscriptions', 'cancellations', 'boxes', 'ratings', 'returns'].forEach(c => {
     db.data[c] = db.data[c].filter(x => !ids.has(x.userId));
@@ -59,23 +59,23 @@ function seedDemo(db, { count = 100, now = new Date(), seed = 2026 } = {}) {
     const name = `${FIRST[i % FIRST.length]} ${LAST[Math.floor(rand() * LAST.length)]}`;
     db.data.users.push({
       id: userId, name, email: `demo_${String(i + 1).padStart(3, '0')}@${SEED_DOMAIN}`, passwordHash: null,
-      role: 'CLIENT', createdAt: startedAt.toISOString(), emailVerified: true, seedDemo: true
+      role: 'CLIENT', createdAt: startedAt.toISOString(), emailVerified: true, seedDemo: true, isDemo: true
     });
     db.data.profiles.push({
-      userId, done: true, seedDemo: true, plan, styles: [STYLES[i % 6], STYLES[(i + 2) % 6]], occasions: ['clase'], fit: 'regular', line: 'u',
+      userId, done: true, seedDemo: true, isDemo: true, plan, styles: [STYLES[i % 6], STYLES[(i + 2) % 6]], occasions: ['clase'], fit: 'regular', line: 'u',
       measures: { height: 165 + (i % 20), weight: 58 + (i % 30), build: 'media', usual: 'M' }, address: 'Cali (dato de prueba)'
     });
     const history = [{ type: 'START', plan, at: startedAt.toISOString() }];
     if (cancelledAt) history.push({ type: 'CANCEL', plan, at: cancelledAt.toISOString() });
     db.data.subscriptions.push({
-      id: id('sub'), userId, plan, status: cancelledAt ? 'CANCELLED' : 'ACTIVE', seedDemo: true,
+      id: id('sub'), userId, plan, status: cancelledAt ? 'CANCELLED' : 'ACTIVE', seedDemo: true, isDemo: true,
       startedAt: startedAt.toISOString(), cancelledAt: cancelledAt ? cancelledAt.toISOString() : null,
       nextChargeAt: null, paymentToken: null, dunning: null, history, createdAt: startedAt.toISOString()
     });
     totals.users++;
     totals.starts++;
     if (cancelledAt) {
-      db.data.cancellations.push({ id: id('cnl'), userId, plan, reason: REASONS[Math.floor(rand() * REASONS.length)], comment: '', seedDemo: true, createdAt: cancelledAt.toISOString() });
+      db.data.cancellations.push({ id: id('cnl'), userId, plan, reason: REASONS[Math.floor(rand() * REASONS.length)], comment: '', seedDemo: true, isDemo: true, createdAt: cancelledAt.toISOString() });
       totals.cancellations++;
     }
 
@@ -86,16 +86,16 @@ function seedDemo(db, { count = 100, now = new Date(), seed = 2026 } = {}) {
       const items = Array.from({ length: plan === 'estilo' ? 5 : 3 }, () => db.catalog[Math.floor(rand() * db.catalog.length)].id);
       const boxId = id('box');
       db.data.boxes.push({
-        id: boxId, userId, cycle: 3 - offset, status: 'RATED', plan, itemIds: items, address: 'Cali (dato de prueba)', seedDemo: true,
+        id: boxId, userId, cycle: 3 - offset, status: 'RATED', plan, itemIds: items, address: 'Cali (dato de prueba)', seedDemo: true, isDemo: true,
         createdAt: new Date(deliveredAt.getTime() - 5 * 86400000).toISOString(), deliveredAt: deliveredAt.toISOString()
       });
       totals.boxes++;
       items.forEach(productId => {
         const score = Math.max(1, Math.min(5, Math.round(3.4 + rand() * 2 - (rand() < 0.1 ? 2 : 0))));
-        db.data.ratings.push({ id: id('rat'), userId, boxId, productId, score, styleScore: score, fitScore: score, liked: score >= 3, seedDemo: true, learnedAt: now.toISOString(), createdAt: new Date(deliveredAt.getTime() + 86400000).toISOString() });
+        db.data.ratings.push({ id: id('rat'), userId, boxId, productId, score, styleScore: score, fitScore: score, liked: score >= 3, seedDemo: true, isDemo: true, learnedAt: now.toISOString(), createdAt: new Date(deliveredAt.getTime() + 86400000).toISOString() });
         totals.ratings++;
         if (rand() < 0.07) {
-          db.data.returns.push({ id: id('ret'), userId, boxId, productId, reason: rand() < 0.5 ? 'TOO_SMALL' : 'TOO_LARGE', requestedSize: 'L', status: 'COMPLETED', seedDemo: true, createdAt: new Date(deliveredAt.getTime() + 2 * 86400000).toISOString() });
+          db.data.returns.push({ id: id('ret'), userId, boxId, productId, reason: rand() < 0.5 ? 'TOO_SMALL' : 'TOO_LARGE', requestedSize: 'L', status: 'COMPLETED', seedDemo: true, isDemo: true, createdAt: new Date(deliveredAt.getTime() + 2 * 86400000).toISOString() });
           totals.returns++;
         }
       });

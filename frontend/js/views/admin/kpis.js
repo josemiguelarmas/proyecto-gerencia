@@ -40,7 +40,9 @@ TCB.adminTabs.monthly = (() => {
             </div>
           </div>
         </div>
-        ${k.churnAlert.active ? `<div class="banner banner--danger" role="alert"><p class="small"><strong>Alerta de churn.</strong> ${k.churnAlert.message}</p></div>` : `<p class="small muted">Churn dentro del umbral de ${k.churnAlert.threshold} %.</p>`}
+        ${k.churnAlert && k.churnAlert.active ? `<div class="banner banner--danger" role="alert"><p class="small"><strong>Alerta de churn.</strong> ${k.churnAlert.message}</p></div>` : `<p class="small muted">Churn dentro del umbral de ${k.churnAlert ? k.churnAlert.threshold : 9} %.</p>`}
+        ${k.ratingAlert && k.ratingAlert.active ? `<div class="banner banner--danger" role="alert" style="margin-top:6px"><p class="small"><strong>Alerta de satisfacción.</strong> ${k.ratingAlert.message}</p></div>` : ''}
+        ${k.returnsAlert && k.returnsAlert.active ? `<div class="banner banner--danger" role="alert" style="margin-top:6px"><p class="small"><strong>Alerta de devoluciones.</strong> ${k.returnsAlert.message}</p></div>` : ''}
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px">
           ${[
             ['Suscriptores activos', k.activeSubscribers, `${k.activeAtStart} al inicio del mes`],
