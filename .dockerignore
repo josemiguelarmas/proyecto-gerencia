@@ -1,0 +1,10 @@
+.git
+.github
+.env
+node_modules
+backend/data/runtime
+backend/data/db.json
+backend/data/outbox.json
+backend/data/*.tmp.*
+tests
+docs/alignment

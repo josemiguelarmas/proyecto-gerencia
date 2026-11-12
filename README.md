@@ -50,15 +50,18 @@
 
 ---
 
-## 3. Credenciales de Acceso para Demostración
+## 3. Cuentas de acceso
 
-| Rol | Correo Electrónico | Contraseña | Destino Inicial | Acceso Rápido |
-| :--- | :--- | :--- | :--- | :--- |
-| **Cliente** | `demo@theclothesbox.co` | `demo123` | `#/caja` | Botón *"Entrar Cliente"* en login |
-| **Administrador** | `admin@theclothesbox.co` | `admin123` | `#/admin` | Botón *"Entrar Admin"* en login |
-| **Estilista** (Sprint 2) | `estilista@theclothesbox.co` | `estilista123` | `#/estilista` | Botón *"Cuenta Estilista"* en login |
+No hay contraseñas en el código ni en este README. Las cuentas internas se crean al arrancar desde variables de entorno, solo si ese correo todavía no existe (nunca se sobrescribe una cuenta):
 
-El cliente demo tiene una suscripción activa pagada con la tarjeta de prueba 4242 (SIMULADO).
+| Rol | Variables | Destino inicial |
+| :--- | :--- | :--- |
+| **Administrador** (`ADMIN`) | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | `#/admin` |
+| **Estilista** (`STYLIST`) | `STYLIST_EMAIL`, `STYLIST_PASSWORD` | `#/estilista` |
+| **Bodega** (`WAREHOUSE`) | `WAREHOUSE_EMAIL`, `WAREHOUSE_PASSWORD` | rutas de despacho `/api/admin/boxes`, `/api/admin/dispatch` |
+| **Cliente demo** (`demo@theclothesbox.co`, de la semilla) | `DEMO_CLIENT_PASSWORD` (opcional) | `#/caja` |
+
+Sin esas variables las cuentas no existen y solo se puede usar el registro normal. El cliente demo tiene una suscripción activa pagada con la tarjeta de prueba 4242 (SIMULADO). Si tu `DATA_DIR` se creó antes de este cambio, todavía guarda las contraseñas demo viejas: borra `DATA_DIR/db.json` (se vuelve a crear desde la semilla) o cambia esas contraseñas.
 
 ---
 
@@ -70,13 +73,15 @@ Todo el desarrollo se encuentra confinado dentro de la carpeta `prototipo-web/`.
 prototipo-web/
 ├── backend/
 │   ├── server.js          # Servidor HTTP nativo Node.js (API REST y estáticos)
-│   ├── routes.js          # Rutas públicas, de cliente y administrativas protegidas
-│   ├── auth.js            # Autenticación JWT y validación de roles (CLIENT/ADMIN)
-│   ├── database.js        # Base de datos JSON atómica con métricas y persistencia
+│   ├── routes/            # Rutas por dominio (auth, catalog, boxes, admin...) y enrutador en index.js
+│   ├── lib/               # Utilidades compartidas (http, accounts, boxes, clock)
+│   ├── auth.js            # JWT (HS256, iss/aud, revocación) y requireRole (CLIENT/STYLIST/ADMIN/WAREHOUSE)
+│   ├── database.js        # Fachada de la base de datos JSON (API histórica db)
+│   ├── repos/             # Repositorios por colección sobre store.js (escritura atómica)
 │   ├── engine.js          # Motor algorítmico de tallaje antropométrico
 │   └── data/
-│       ├── catalog.json   # 18 prendas de marcas colombianas con fotos reales y medidas en cm
-│       └── db.json        # Almacenamiento de usuarios con roles, cajas y devoluciones
+│       ├── seed/          # Semillas versionadas: catalog.json (18 prendas) y db.json (sin contraseñas)
+│       └── runtime/       # Datos de ejecución (DATA_DIR por defecto, fuera de git)
 │
 ├── frontend/
 │   ├── index.html         # Shell SPA accesible con fuentes Fraunces/Inter
@@ -96,7 +101,8 @@ prototipo-web/
 │           ├── authView.js        # Modales de acceso dual (Cliente y Admin)
 │           ├── onboardingView.js  # 3 pasos antropométricos hacia el backend
 │           ├── boxView.js         # Caja sellada, desempaque y descubrimiento individual
-│           ├── adminView.js       # Consola profesional de operaciones y auditoría
+│           ├── adminView.js       # Consola de operaciones: carga de datos, cabecera y barra de pestañas
+│           ├── admin/             # Una pestaña del panel admin por archivo (boxes, products, kpis...)
 │           ├── returnsView.js     # Módulo especializado de cambio por talla
 │           ├── historyView.js     # Historial de cajas y prendas entregadas
 │           └── profileView.js     # Perfil antropométrico y marcas locales
@@ -113,10 +119,20 @@ prototipo-web/
 ## 5. Instrucciones de Ejecución y Pruebas
 
 ### Iniciar la Aplicación Full-Stack
-```bash
+El servidor no arranca sin `JWT_SECRET` y `DATA_ENCRYPTION_KEY` (ver sección 7). En PowerShell:
+```powershell
+$env:JWT_SECRET = "pon-aqui-un-secreto-largo-y-aleatorio"
+$env:DATA_ENCRYPTION_KEY = "pon-aqui-otra-clave-larga-y-aleatoria"
+# Opcional: cuentas internas (se crean al arrancar solo si el correo no existe).
+# La contraseña debe tener 8 caracteres o más, con letras y números.
+$env:ADMIN_EMAIL = "admin@tu-dominio.co"
+$env:ADMIN_PASSWORD = "elige-una-clave-1"
+$env:STYLIST_EMAIL = "estilista@tu-dominio.co"
+$env:STYLIST_PASSWORD = "elige-otra-clave-2"
+$env:WAREHOUSE_EMAIL = "bodega@tu-dominio.co"
+$env:WAREHOUSE_PASSWORD = "elige-otra-clave-3"
+$env:DEMO_CLIENT_PASSWORD = "clave-del-demo-4"   # para entrar como demo@theclothesbox.co
 npm start
-# o directamente:
-node server.js
 ```
 Abre en tu navegador:
 ```text
@@ -124,13 +140,13 @@ http://localhost:3000
 ```
 
 ### Ejecutar las Pruebas Automatizadas del Backend (70 al cierre del Sprint 2)
-```bash
-npm test
-# o directamente:
-node tests/api.test.js
+```powershell
+npm test                               # node --test tests/ (todos los archivos *.test.js)
+node tests/api.test.js                 # solo la suite histórica de 70 pruebas
+node --test tests/foundation.test.js   # un solo archivo
 ```
 
-Las pruebas levantan el servidor en el puerto 3199 sobre copias temporales de la base, el catálogo y la bandeja de salida, así que no modifican `backend/data/`. Si una falla, el proceso termina con código 1. El detalle de cada prueba por HU está en `EVIDENCIAS_SPRINT2.md`.
+`npm test` usa el runner nativo `node:test`: cada archivo `tests/*.test.js` corre en su propio proceso y, si alguno falla, el comando termina con código distinto de 0. `tests/api.test.js` (70 pruebas con `assert`) se conserva y levanta el servidor en el puerto 3199 sobre copias temporales de la base, el catálogo y la bandeja de salida, así que no modifica `backend/data/`. Las pruebas nuevas usan `tests/helpers/`: `server.js` (servidor en un puerto efímero con su propia carpeta de datos temporal), `http.js` (cliente JSON) y `clock.js` (reloj inyectable sobre `backend/lib/clock.js`). El detalle de cada prueba por HU está en `EVIDENCIAS_SPRINT2.md`.
 
 Salida de las 15 pruebas originales del Sprint 1:
 ```text
@@ -193,33 +209,61 @@ No hay credenciales reales. Cada servicio es un adaptador con la misma interfaz 
 
 | Servicio | Adaptador | Qué hace en modo simulado |
 | :--- | :--- | :--- |
-| Correo | `backend/mail/index.js` | Guarda cada correo en `backend/data/outbox.json`. Se ve en Panel → Bandeja de Salida. |
-| Pasarela de pagos | `backend/payments/index.js` | Tokeniza la tarjeta (nunca guarda el número completo ni el CVV), cobra con llave de idempotencia y firma webhooks con HMAC. Tarjetas de prueba: `4242 4242 4242 4242` aprueba, `4000 0000 0000 0002` rechaza, `4000 0000 0000 0341` aprueba el primer cobro y falla los recurrentes. |
-| Facturación electrónica | `backend/invoicing/index.js` | Imita el ambiente de habilitación de la DIAN: factura `SETT-n` con IVA y CUFE simulado. |
-| Operador logístico | `backend/shipping/index.js` | Guías de despacho `TCB-AAAAMMDD-0001` y de devolución `TCB-DEV-AAAAMMDD-0001`. |
+| Correo | `backend/adapters/mailer/index.js` | Guarda cada correo en `DATA_DIR/outbox.json`. Se ve en Panel → Bandeja de Salida. |
+| Pasarela de pagos | `backend/adapters/payments/index.js` | Tokeniza la tarjeta (nunca guarda el número completo ni el CVV), cobra con llave de idempotencia y firma webhooks con HMAC. Tarjetas de prueba: `4242 4242 4242 4242` aprueba, `4000 0000 0000 0002` rechaza, `4000 0000 0000 0341` aprueba el primer cobro y falla los recurrentes. Tokens fijos: `tok_ok`, `tok_declined` y `tok_flaky` (falla los primeros `PAYMENT_FLAKY_FAILURES` cobros, 2 por defecto). |
+| Facturación electrónica | `backend/adapters/invoicing/index.js` | Imita el ambiente de habilitación de la DIAN: factura `SETT-n` con IVA y CUFE simulado. |
+| Operador logístico | `backend/adapters/logistics/index.js` | Guías de despacho `TCB-AAAAMMDD-0001` y de devolución `TCB-DEV-AAAAMMDD-0001`. Modo manual (`manualShipment`) para registrar transportadora y guía reales. |
 
 ### Variables de entorno
-Todas son opcionales; sin ellas la app corre con los valores por defecto.
+Se leen en `backend/config/env.js` (las reglas de negocio siguen en `backend/config.js`). La lista completa con comentarios está en `.env.example`. Node no lee `.env` solo: define las variables en la terminal. `JWT_SECRET` y `DATA_ENCRYPTION_KEY` son obligatorias salvo con `NODE_ENV=test`; sin ellas `npm start` termina con código 1 y dice cuáles faltan. Las demás son opcionales.
+
+```powershell
+$env:JWT_SECRET = "pon-aqui-un-secreto-largo-y-aleatorio"
+$env:DATA_ENCRYPTION_KEY = "pon-aqui-otra-clave-larga-y-aleatoria"
+$env:DATA_DIR = "C:/tcb-datos"          # opcional, por defecto backend/data/runtime
+$env:PORT = "3000"                       # opcional
+npm start
+# Para volver a los valores por defecto en la misma terminal:
+Remove-Item Env:DATA_DIR
+```
+
+**Datos.** Lo versionado son las semillas de `backend/data/seed/` (`catalog.json` y `db.json`, esta última sin contraseñas). Los datos de ejecución (base, catálogo con stock descontado y bandeja de salida) viven en `DATA_DIR`, que se crea al arrancar y está en `.gitignore`. Si `DATA_DIR` está vacío, la base y el catálogo se crean desde las semillas. Un `backend/data/db.json` local de una versión anterior ya no se usa ni se versiona; se puede borrar.
 
 | Variable | Por defecto | Uso |
 | :--- | :--- | :--- |
+| `JWT_SECRET` | obligatoria | Secreto de firma de los JWT. |
+| `DATA_ENCRYPTION_KEY` | obligatoria | Clave de cifrado de datos sensibles (se usa a partir de Fase 1b). |
+| `NODE_ENV` | `development` | Con `test` no se exigen los secretos. |
 | `PORT` | `3000` | Puerto del servidor. |
+| `DATA_DIR` | `backend/data/runtime` | Carpeta de datos de ejecución. |
+| `JWT_TTL_HOURS` | `8` | Vida del token de sesión en horas. Cerrar sesión o restablecer la contraseña revoca los tokens anteriores. |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD` | sin definir | Cuenta ADMIN. Se crea al arrancar solo si el correo no existe (ver sección 3). |
+| `STYLIST_EMAIL`, `STYLIST_PASSWORD` | sin definir | Cuenta STYLIST, misma regla. |
+| `WAREHOUSE_EMAIL`, `WAREHOUSE_PASSWORD` | sin definir | Cuenta WAREHOUSE (bodega: rutas de despacho), misma regla. |
+| `DEMO_CLIENT_PASSWORD` | sin definir | Contraseña del cliente demo de la semilla; sin ella esa cuenta no puede entrar. |
+| `CORS_ORIGINS` | `http://localhost:PORT` | Orígenes permitidos, separados por coma. La propia página siempre puede llamar a la API; no hay `*`. |
+| `POLICY_VERSION` | `v1.0` | Versión vigente de la política de datos. |
 | `APP_BASE_URL` | `http://localhost:3000` | Enlaces dentro de los correos. |
 | `MAIL_PROVIDER` | `simulated` | Proveedor de correo. |
 | `PAYMENT_PROVIDER` | `simulated` | Pasarela de pagos. |
 | `PAYMENT_WEBHOOK_SECRET` | `whsec_simulado_desarrollo` | Secreto HMAC del webhook `POST /api/webhooks/payments` (cabecera `X-Signature`). |
 | `PAYMENT_RETRY_DAYS` | `1,3,5` | Días de reintento del cobro recurrente fallido. |
 | `INVOICING_PROVIDER` | `simulated` | Proveedor de facturación electrónica. |
+| `PAYMENT_FLAKY_FAILURES` | `2` | Cobros que falla el token simulado `tok_flaky` antes de aprobar. |
 | `INVOICING_FAIL` | sin definir | Con `1`, el proveedor de facturación falla y las facturas quedan en cola de reintento con alerta en el panel. |
 | `SHIPPING_PROVIDER` | `simulated` | Operador logístico. |
 | `SUBSCRIPTION_CUTOFF_DAY` | `25` | Día de corte para que un cambio de plan alcance la próxima caja. |
 | `RETURN_WINDOW_BUSINESS_DAYS` | `5` | Plazo del cambio por talla en días hábiles desde la entrega. |
 | `REVIEW_REMINDER_DAYS` | `3` | Días desde la entrega para recordar la calificación. |
-| `TCB_DB_FILE` | `backend/data/db.json` | Archivo de la base. Las pruebas y los scripts lo usan para trabajar sobre una copia. |
-| `TCB_CATALOG_FILE` | `backend/data/catalog.json` | Archivo del catálogo. |
-| `TCB_OUTBOX_FILE` | `backend/data/outbox.json` | Bandeja de salida de correos. |
+| `BOX_BATCH_DAY` | `1` | Día del mes en que el planificador arma el lote de cajas (supuesto por confirmar). |
+| `TCB_DB_FILE` | `DATA_DIR/db.json` | Archivo de la base. Las pruebas y los scripts lo usan para trabajar sobre una copia. |
+| `TCB_CATALOG_FILE` | `DATA_DIR/catalog.json` (copiado de `backend/data/seed/catalog.json`) | Archivo del catálogo. |
+| `TCB_OUTBOX_FILE` | `DATA_DIR/outbox.json` | Bandeja de salida de correos. |
 
 El umbral de alerta de churn (9 % por defecto) se cambia desde Panel → KPIs del mes y queda guardado en la base.
+
+### Tareas programadas
+Cada tarea es un módulo en `backend/jobs/` que exporta `run({ now })` y devuelve un resumen: recordatorio de calificación, cobro recurrente con reintentos, reanudación de pausas, reintento de facturas, ingesta de feedback, lote mensual de cajas, foto de KPI y revisión de conciliación de pagos. `backend/jobs/index.js` las revisa cada hora desde que arranca el servidor (las diarias corren una vez al día y el lote solo el día `BOX_BATCH_DAY`). Con `NODE_ENV=test` no se programa nada. Los botones del panel siguen llamando a los mismos endpoints `/api/admin/jobs/*` y `/api/admin/boxes/generate-batch`.
 
 ### Scripts
 ```bash
@@ -230,8 +274,8 @@ node scripts/migrate-catalog-variants.js   # migración del catálogo a variante
 ```
 
 Los usuarios del seed usan correos `@seed.theclothesbox.test`, no tienen contraseña ni medio de pago, y el cobro recurrente y la generación de cajas los ignoran. Para no tocar la base real, el seed se puede correr sobre una copia:
-```bash
-TCB_DB_FILE=/ruta/copia-db.json node scripts/seed-demo.js
+```powershell
+$env:TCB_DB_FILE = "C:/ruta/copia-db.json"; node scripts/seed-demo.js
 ```
 
 ### Pantallas nuevas del Sprint 2

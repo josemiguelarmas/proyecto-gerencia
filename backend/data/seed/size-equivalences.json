@@ -1,0 +1,12 @@
+{
+  "norte": { "runs": 0, "runsText": "talla estándar" },
+  "ceiba": { "runs": 0.6, "runsText": "talla pequeño" },
+  "mono": { "runs": -0.5, "runsText": "talla amplio" },
+  "true": { "runs": -0.4, "runsText": "corte holgado" },
+  "punto-blanco": { "runs": 0, "runsText": "talla regular" },
+  "zara": { "runs": 0.5, "runsText": "talla pequeño" },
+  "mango": { "runs": 0.5, "runsText": "talla pequeño" },
+  "hm": { "runs": 0, "runsText": "talla estándar" },
+  "mattelsa": { "runs": 0.4, "runsText": "talla ajustada" },
+  "koaj": { "runs": 0.4, "runsText": "talla pequeña" }
+}

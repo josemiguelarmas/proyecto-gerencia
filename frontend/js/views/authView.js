@@ -1,4 +1,4 @@
-// Auth Modals & Views (Register, Login, Demo Account)
+// Auth Modals & Views (Register, Login, Password recovery). No credentials live in the frontend.
 window.TCB = window.TCB || {};
 TCB.views = TCB.views || {};
 
@@ -11,36 +11,6 @@ TCB.views.auth = (() => {
       title: 'Iniciar sesión',
       body: `
         <div class="stack" style="--stack:18px">
-          <!-- Botones de acceso rápido por rol -->
-          <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(140px, 1fr));gap:10px">
-            <div style="background:var(--paper-2);border:1px dashed var(--brand-box);padding:12px;border-radius:var(--r-1);display:flex;flex-direction:column;justify-content:space-between">
-              <div>
-                <p style="font-weight:700;font-size:var(--fs-xs)">Cuenta Cliente</p>
-                <p class="small muted" style="font-size:11px">demo@theclothesbox.co</p>
-              </div>
-              <button type="button" class="btn btn--gold btn--sm" id="btn-quick-demo" style="margin-top:8px">Entrar Cliente</button>
-            </div>
-            <div style="background:var(--paper-2);border:1px dashed var(--ink);padding:12px;border-radius:var(--r-1);display:flex;flex-direction:column;justify-content:space-between">
-              <div>
-                <p style="font-weight:700;font-size:var(--fs-xs)">Cuenta Admin</p>
-                <p class="small muted" style="font-size:11px">admin@theclothesbox.co</p>
-              </div>
-              <button type="button" class="btn btn--ghost btn--sm" id="btn-quick-admin" style="margin-top:8px">Entrar Admin</button>
-            </div>
-            <div style="background:var(--paper-2);border:1px dashed var(--brand-box);padding:12px;border-radius:var(--r-1);display:flex;flex-direction:column;justify-content:space-between">
-              <div>
-                <p style="font-weight:700;font-size:var(--fs-xs)">Cuenta Estilista</p>
-                <p class="small muted" style="font-size:11px">estilista@theclothesbox.co</p>
-              </div>
-              <button type="button" class="btn btn--ghost btn--sm" id="btn-quick-stylist" style="margin-top:8px">Entrar Estilista</button>
-            </div>
-          </div>
-
-          <div style="text-align:center;position:relative;margin-block:4px">
-            <span style="background:var(--paper);padding:0 12px;font-size:var(--fs-xs);color:var(--muted);font-weight:600;text-transform:uppercase">o con tu correo</span>
-            <hr style="position:absolute;left:0;right:0;top:50%;z-index:-1;border:0;border-top:var(--hair);margin:0">
-          </div>
-
           <form id="login-form" class="stack" style="--stack:14px" novalidate>
             <p class="error small" id="login-error" role="alert"></p>
             <div class="field">
@@ -63,44 +33,6 @@ TCB.views.auth = (() => {
       onMount(modalEl, close) {
         const form = modalEl.querySelector('#login-form');
         const errEl = modalEl.querySelector('#login-error');
-
-        modalEl.querySelector('#btn-quick-demo').addEventListener('click', async () => {
-          try {
-            const data = await TCB.api.auth.login('demo@theclothesbox.co', 'demo123');
-            await TCB.state.loadUserSession();
-            close();
-            TCB.state.toast('Bienvenido de vuelta, Jose Miguel (Cliente).');
-            if (onSuccess) onSuccess(TCB.state.get().user?.role);
-            else window.location.hash = '#/caja';
-          } catch (e) {
-            errEl.textContent = 'Error al ingresar con cuenta demo.';
-          }
-        });
-
-        modalEl.querySelector('#btn-quick-admin')?.addEventListener('click', async () => {
-          try {
-            const data = await TCB.api.auth.login('admin@theclothesbox.co', 'admin123');
-            await TCB.state.loadUserSession();
-            close();
-            TCB.state.toast('Bienvenido al Panel de Operaciones (ADMIN).');
-            if (onSuccess) onSuccess(TCB.state.get().user?.role);
-            else window.location.hash = '#/admin';
-          } catch (e) {
-            errEl.textContent = 'Error al ingresar con cuenta admin.';
-          }
-        });
-
-        modalEl.querySelector('#btn-quick-stylist')?.addEventListener('click', async () => {
-          try {
-            await TCB.api.auth.login('estilista@theclothesbox.co', 'estilista123');
-            await TCB.state.loadUserSession();
-            close();
-            TCB.state.toast('Bienvenida a la cola de curaduría (ESTILISTA).');
-            window.location.hash = '#/estilista';
-          } catch (e) {
-            errEl.textContent = 'Error al ingresar con cuenta estilista.';
-          }
-        });
 
         modalEl.querySelector('#btn-to-register').addEventListener('click', () => {
           close();
@@ -130,8 +62,9 @@ TCB.views.auth = (() => {
             await TCB.state.loadUserSession();
             close();
             TCB.state.toast('Sesión iniciada con éxito.');
-            if (onSuccess) onSuccess(TCB.state.get().user?.role);
-            else window.location.hash = '#/caja';
+            const role = TCB.state.get().user?.role;
+            if (onSuccess) onSuccess(role);
+            else window.location.hash = role === 'ADMIN' ? '#/admin' : role === 'STYLIST' ? '#/estilista' : '#/caja';
           } catch (err) {
             errEl.textContent = err.data?.error || err.message;
           } finally {

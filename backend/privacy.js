@@ -2,10 +2,10 @@
 // Cada solicitud queda en dataRequests con su tiempo de respuesta.
 const { db, verifyPassword } = require('./database');
 const config = require('./config');
-const mail = require('./mail');
+const mail = require('./adapters/mailer');
 const billing = require('./billing');
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const { EMAIL_RE } = require('./lib/validate');
 
 function httpError(status, message, extra = {}) {
   const err = new Error(message);
@@ -96,8 +96,8 @@ function deleteAccount(userId, password) {
     throw httpError(403, 'La contraseña no es correcta. Escríbela para confirmar que quieres eliminar tu cuenta.');
   }
   const sub = db.getSubscription(userId);
-  if (sub.status === 'PAST_DUE' || sub.dunning) {
-    db.addDataRequest(userId, 'DELETION', { requestedAt, status: 'BLOCKED', detail: 'Cobro pendiente' });
+  if ((billing.hasPendingCharge && billing.hasPendingCharge(userId)) || sub.status === 'PAST_DUE' || sub.dunning) {
+    db.addDataRequest(userId, 'DELETION', { requestedAt, status: 'BLOCKED', detail: 'Cobro o despacho pendiente' });
     throw httpError(409, 'No podemos eliminar tu cuenta mientras tengas un cobro pendiente. Actualiza tu medio de pago o espera a que se resuelva el cobro en curso y vuelve a intentarlo.', { code: 'PENDING_CHARGE' });
   }
 

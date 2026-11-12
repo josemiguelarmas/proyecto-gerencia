@@ -1,0 +1,61 @@
+{
+  "_comment": "Reglas de composición de outfits y compatibilidad del motor de recomendación",
+  "status": "pendiente de validación del estilista",
+  "version": "1.0.0",
+  "plans": {
+    "esencial": {
+      "itemCount": 3,
+      "targetCostCOP": 51960,
+      "slots": ["top", "bottom", "capa"],
+      "composition": "1 superior, 1 inferior, 1 capa / abrigo",
+      "outfits": [
+        {
+          "id": "outfit-1",
+          "name": "Outfit 01 · Base Urbana",
+          "slotIndices": [0, 1],
+          "description": "Combinación armónica de superior e inferior para el uso cotidiano."
+        },
+        {
+          "id": "outfit-2",
+          "name": "Outfit 02 · Conjunto Completo con Capa",
+          "slotIndices": [0, 1, 2],
+          "description": "Look integral incorporando la tercera pieza para mayor presencia y versatilidad."
+        }
+      ]
+    },
+    "estilo": {
+      "itemCount": 5,
+      "targetCostCOP": 87960,
+      "slots": ["top", "bottom", "capa", "top", "bottom"],
+      "composition": "2 superiores, 2 inferiores, 1 capa / abrigo",
+      "outfits": [
+        {
+          "id": "outfit-1",
+          "name": "Outfit 01 · Look Diario A",
+          "slotIndices": [0, 1],
+          "description": "Combinación casual de primer conjunto superior e inferior."
+        },
+        {
+          "id": "outfit-2",
+          "name": "Outfit 02 · Look Diario B",
+          "slotIndices": [3, 4],
+          "description": "Segundo look casual intercambiable con paleta coordinada."
+        },
+        {
+          "id": "outfit-3",
+          "name": "Outfit 03 · Look Elevado con Tercera Pieza",
+          "slotIndices": [0, 4, 2],
+          "description": "Combinación cruzada sumando la capa para una ocasión especial o salida."
+        }
+      ]
+    }
+  },
+  "compatibilityMatrix": {
+    "urbano": { "urbano": 1.0, "minimal": 0.85, "deportivo": 0.8, "retro": 0.75, "clasico": 0.5, "artesanal": 0.65 },
+    "minimal": { "minimal": 1.0, "clasico": 0.9, "urbano": 0.85, "artesanal": 0.7, "retro": 0.55, "deportivo": 0.5 },
+    "retro": { "retro": 1.0, "artesanal": 0.85, "urbano": 0.75, "clasico": 0.6, "minimal": 0.55, "deportivo": 0.45 },
+    "clasico": { "clasico": 1.0, "minimal": 0.9, "urbano": 0.5, "retro": 0.6, "artesanal": 0.45, "deportivo": 0.35 },
+    "deportivo": { "deportivo": 1.0, "urbano": 0.8, "minimal": 0.5, "retro": 0.45, "clasico": 0.35, "artesanal": 0.4 },
+    "artesanal": { "artesanal": 1.0, "retro": 0.85, "urbano": 0.65, "minimal": 0.7, "clasico": 0.45, "deportivo": 0.4 }
+  }
+}

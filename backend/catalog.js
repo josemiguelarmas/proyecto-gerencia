@@ -1,4 +1,9 @@
-// HU-05: modelo de variantes del catálogo e importación CSV.
+// HU-05 catalog model and CSV import. Pure functions over product objects (no persistence:
+// repos/products.js and repos/inventory.js save). Model: a Brand (brandId, brandName,
+// brandCity) owns Products; a Product owns Variants { sku, size, color, stock, reserved,
+// wholesalePrice, retailPrice }. stock and reserved are non-negative integers with
+// reserved <= stock, and available = stock - reserved is what the engine, the stylist and
+// exchanges may use. A soft-deleted product (deletedAt set) has no available units.
 const config = require('./config');
 
 // Tallas que ofrece una prenda: las de su tabla de medidas, o todas si no tiene.
@@ -7,7 +12,12 @@ function productSizes(product) {
   return table ? Object.keys(table) : config.SIZES.slice();
 }
 
-// Completa variants y wholesalePriceCOP en prendas creadas antes del modelo de variantes.
+// SKU generated when a brand does not send one: product id + size + color, e.g. PROD-01-M-NEGRO.
+function skuFor(productId, size, color) {
+  return `${productId}-${size}-${slug(color)}`.toUpperCase();
+}
+
+// Completa los campos del modelo en prendas guardadas antes de él (variants, sku, reserved, precios).
 function normalizeProduct(product) {
   let changed = false;
   if (!Array.isArray(product.variants)) {
@@ -23,37 +33,96 @@ function normalizeProduct(product) {
     product.wholesaleEstimated = true;
     changed = true;
   }
+  if (!product.brandId && product.brandName) {
+    product.brandId = slug(product.brandName);
+    changed = true;
+  }
+  product.variants.forEach(v => {
+    if (!v.sku) { v.sku = skuFor(product.id, v.size, v.color); changed = true; }
+    if (!Number.isInteger(v.reserved)) { v.reserved = 0; changed = true; }
+    if (!Number.isInteger(v.wholesalePrice)) { v.wholesalePrice = product.wholesalePriceCOP; changed = true; }
+    if (!Number.isInteger(v.retailPrice)) { v.retailPrice = product.priceCOP; changed = true; }
+  });
   return changed;
 }
 
-function stockInSize(product, size) {
-  return (product.variants || [])
-    .filter(v => v.size === size)
-    .reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+function isActive(product) {
+  return !product.deletedAt;
 }
 
-// Parser CSV mínimo: separador coma, comillas dobles opcionales con "" como escape.
-function parseCsv(text) {
-  const rows = [];
+function availableUnits(variant) {
+  return Math.max(0, (Number(variant.stock) || 0) - (Number(variant.reserved) || 0));
+}
+
+// Unidades disponibles (stock - reservado) en una talla. Una prenda eliminada no tiene disponibles.
+function stockInSize(product, size) {
+  if (!isActive(product)) return 0;
+  return (product.variants || [])
+    .filter(v => v.size === size)
+    .reduce((sum, v) => sum + availableUnits(v), 0);
+}
+
+// Brands are derived from the products that reference them (one brandId per allied brand).
+function listBrands(catalog) {
+  const brands = new Map();
+  catalog.forEach(p => {
+    const id = p.brandId || slug(p.brandName || '');
+    if (!id) return;
+    const brand = brands.get(id) || { id, name: p.brandName, city: p.brandCity || null, products: 0, activeProducts: 0 };
+    brand.products++;
+    if (isActive(p)) brand.activeProducts++;
+    brands.set(id, brand);
+  });
+  return [...brands.values()].sort((a, b) => a.name.localeCompare(b.name, 'es'));
+}
+
+// ---------------------------------------------------------------
+// CSV import (SCRUM-39): one row per variant, upsert by sku
+// ---------------------------------------------------------------
+
+// Parser CSV: comillas dobles con "" como escape y saltos de línea dentro de comillas. Devuelve
+// los registros con la línea del archivo donde empieza cada uno, y la línea de una comilla sin cerrar.
+function parseCsv(text, delimiter = ',') {
+  const records = [];
   let row = [];
   let field = '';
   let inQuotes = false;
+  let line = 1;
+  let recordLine = 1;
+  let quoteLine = null;
   const src = String(text).replace(/^﻿/, '');
+  const endRecord = () => {
+    row.push(field);
+    if (row.some(c => c.trim() !== '')) records.push({ line: recordLine, cells: row });
+    row = []; field = '';
+  };
   for (let i = 0; i < src.length; i++) {
     const ch = src[i];
     if (inQuotes) {
       if (ch === '"' && src[i + 1] === '"') { field += '"'; i++; }
       else if (ch === '"') inQuotes = false;
-      else field += ch;
-    } else if (ch === '"') inQuotes = true;
-    else if (ch === ',') { row.push(field); field = ''; }
+      else {
+        if (ch === '\n') line++;
+        field += ch;
+      }
+    } else if (ch === '"') { inQuotes = true; quoteLine = line; }
+    else if (ch === delimiter) { row.push(field); field = ''; }
     else if (ch === '\n' || ch === '\r') {
       if (ch === '\r' && src[i + 1] === '\n') i++;
-      row.push(field); rows.push(row); row = []; field = '';
+      endRecord();
+      line++;
+      recordLine = line;
     } else field += ch;
   }
-  if (field !== '' || row.length) { row.push(field); rows.push(row); }
-  return rows.filter(r => r.some(c => c.trim() !== ''));
+  if (inQuotes) return { records, unclosedQuoteLine: quoteLine };
+  if (field !== '' || row.length) endRecord();
+  return { records, unclosedQuoteLine: null };
+}
+
+// Excel en español guarda CSV con punto y coma: se usa ';' si el encabezado no tiene comas.
+function detectDelimiter(text) {
+  const header = String(text).split(/\r?\n/, 1)[0];
+  return header.includes(';') && !header.includes(',') ? ';' : ',';
 }
 
 function normalizeHeader(h) {
@@ -65,105 +134,323 @@ function slug(text) {
 }
 
 const REQUIRED_COLUMNS = ['marca', 'nombre', 'categoria', 'estilo', 'ocasion', 'talla', 'color', 'precio_mayorista', 'stock'];
+const OPTIONAL_COLUMNS = ['sku', 'precio_venta', 'ciudad', 'tipo', 'corte', 'tejido', 'linea', 'imagen_url'];
+const FITS = ['ajustado', 'regular', 'holgado'];
+const LINES = ['u', 'm', 'f'];
+const SKU_RE = /^[A-Z0-9][A-Z0-9-]{1,39}$/;
 const DEFAULT_IMAGE = 'https://images.unsplash.com/photo-1489987707025-afc232f7ea0f?auto=format&fit=crop&w=800&q=80';
 
 function splitList(value) {
   return value.split(/[|;]/).map(v => normalizeHeader(v)).filter(Boolean);
 }
 
-// Valida fila por fila. Las válidas se aplican al catálogo; las inválidas se reportan con su motivo.
-function importCatalogCsv(csvText, catalog) {
-  const rows = parseCsv(csvText);
-  if (rows.length === 0) {
-    return { fatal: 'El archivo está vacío.' };
+// Precios en COP: se aceptan "35000", "35.000" y "$35.000".
+function parsePrice(text) {
+  return Number(text.replace(/[.\s$]/g, ''));
+}
+
+// Valida una fila y devuelve sus valores ya normalizados, o la lista de errores por campo.
+function validateRow(r) {
+  const errors = [];
+  const fail = (field, message) => errors.push({ field, message });
+  REQUIRED_COLUMNS.filter(c => !r[c]).forEach(c => fail(c, 'Campo obligatorio vacío.'));
+
+  const value = {
+    sku: r.sku ? r.sku.toUpperCase() : null,
+    brandName: r.marca,
+    name: r.nombre,
+    category: normalizeHeader(r.categoria || ''),
+    size: (r.talla || '').toUpperCase(),
+    color: r.color,
+    styles: splitList(r.estilo || ''),
+    occasions: splitList(r.ocasion || ''),
+    wholesale: parsePrice(r.precio_mayorista || ''),
+    stock: Number(r.stock),
+    retail: r.precio_venta ? parsePrice(r.precio_venta) : null,
+    fit: r.corte ? normalizeHeader(r.corte) : 'regular',
+    line: r.linea ? r.linea.toLowerCase() : 'u'
+  };
+
+  if (value.sku && !SKU_RE.test(value.sku)) fail('sku', `SKU "${r.sku}" no válido: usa de 2 a 40 letras, números o guiones.`);
+  if (r.categoria && !config.CATEGORIES.includes(value.category)) fail('categoria', `Categoría "${r.categoria}" no válida. Usa: ${config.CATEGORIES.join(', ')}.`);
+  if (r.talla && !config.SIZES.includes(value.size)) fail('talla', `Talla "${r.talla}" no válida. Usa: ${config.SIZES.join(', ')}.`);
+  if (r.estilo && value.styles.some(s => !config.STYLES.includes(s))) fail('estilo', `Estilo "${r.estilo}" no válido. Usa: ${config.STYLES.join(', ')} (separados por |).`);
+  if (r.ocasion && value.occasions.some(o => !config.OCCASIONS.includes(o))) fail('ocasion', `Ocasión "${r.ocasion}" no válida. Usa: ${config.OCCASIONS.join(', ')} (separadas por |).`);
+  if (r.precio_mayorista && (!Number.isInteger(value.wholesale) || value.wholesale <= 0)) fail('precio_mayorista', `Precio mayorista "${r.precio_mayorista}" debe ser un entero positivo en COP.`);
+  if (r.stock && (!/^\d+$/.test(r.stock) || !Number.isInteger(value.stock))) fail('stock', `Stock "${r.stock}" debe ser un entero mayor o igual a 0.`);
+  if (r.precio_venta && (!Number.isInteger(value.retail) || value.retail <= 0)) fail('precio_venta', `Precio de venta "${r.precio_venta}" debe ser un entero positivo en COP.`);
+  if (!FITS.includes(value.fit)) fail('corte', `Corte "${r.corte}" no válido. Usa: ${FITS.join(', ')}.`);
+  if (!LINES.includes(value.line)) fail('linea', `Línea "${r.linea}" no válida. Usa: u (unisex), m o f.`);
+  if (r.imagen_url && !/^https?:\/\//.test(r.imagen_url)) fail('imagen_url', 'La imagen debe ser una URL que empiece por http:// o https://.');
+  return { errors, value };
+}
+
+function nextProductId(catalog) {
+  const max = catalog.reduce((m, p) => Math.max(m, Number((String(p.id).match(/(\d+)$/) || [0, 0])[1])), 0);
+  return `prod-${String(max + 1).padStart(2, '0')}`;
+}
+
+function newProductFromRow(v, r, catalog) {
+  return {
+    id: nextProductId(catalog),
+    name: v.name,
+    brandId: slug(v.brandName),
+    brandName: v.brandName,
+    brandCity: r.ciudad || 'Colombia',
+    category: v.category,
+    type: r.tipo || v.category,
+    color: v.color,
+    colorName: v.color,
+    fabric: r.tejido || 'Por confirmar',
+    fit: v.fit,
+    line: v.line,
+    styles: v.styles,
+    occasions: v.occasions,
+    priceCOP: v.retail || Math.round(v.wholesale / config.WHOLESALE_RATIO_DEFAULT),
+    ...(v.retail ? {} : { priceEstimated: true }),
+    wholesalePriceCOP: v.wholesale,
+    story: '',
+    care: '',
+    imageUrl: r.imagen_url || DEFAULT_IMAGE,
+    variants: [],
+    importedAt: new Date().toISOString()
+  };
+}
+
+function findBySku(catalog, sku) {
+  for (const product of catalog) {
+    const variant = (product.variants || []).find(x => x.sku === sku);
+    if (variant) return { product, variant };
   }
-  const headers = rows[0].map(normalizeHeader);
+  return null;
+}
+
+// Aplica una fila válida: actualiza la variante con ese sku (o con esa prenda, talla y color) o la crea.
+// Devuelve { error } si la fila choca con el catálogo, o { created, stockChange }.
+function upsertRow(v, r, catalog) {
+  const sameProduct = p => slug(p.brandName) === slug(v.brandName) && slug(p.name) === slug(v.name);
+  let product;
+  let variant;
+  const bySku = v.sku && findBySku(catalog, v.sku);
+  if (bySku) {
+    ({ product, variant } = bySku);
+    if (!sameProduct(product)) return { error: { field: 'sku', message: `El SKU ${v.sku} ya pertenece a "${product.name}" de ${product.brandName}.` } };
+    if (variant.size !== v.size || slug(variant.color) !== slug(v.color)) {
+      return { error: { field: 'sku', message: `El SKU ${v.sku} corresponde a talla ${variant.size}, color ${variant.color}.` } };
+    }
+  } else {
+    product = catalog.find(sameProduct);
+    variant = product && product.variants.find(x => x.size === v.size && slug(x.color) === slug(v.color));
+    if (variant && v.sku) return { error: { field: 'sku', message: `Esta prenda ya tiene la talla ${v.size} color ${v.color} con el SKU ${variant.sku}.` } };
+  }
+  if (product && product.deletedAt) return { error: { field: 'nombre', message: `La prenda "${product.name}" fue eliminada del catálogo; restáurala antes de importarla.` } };
+  if (variant && v.stock < variant.reserved) return { error: { field: 'stock', message: `El stock no puede ser menor que las ${variant.reserved} unidades reservadas para cajas aprobadas.` } };
+  const newSku = !variant && (v.sku || skuFor(product ? product.id : nextProductId(catalog), v.size, v.color));
+  if (newSku && findBySku(catalog, newSku)) return { error: { field: 'sku', message: `El SKU ${newSku} ya existe en el catálogo.` } };
+
+  let createdProduct = false;
+  if (!product) {
+    product = newProductFromRow(v, r, catalog);
+    catalog.push(product);
+    createdProduct = true;
+  }
+  product.wholesalePriceCOP = v.wholesale;
+  delete product.wholesaleEstimated;
+  const retailPrice = v.retail || (variant && variant.retailPrice) || product.priceCOP;
+  if (variant) {
+    const before = variant.stock;
+    Object.assign(variant, { stock: v.stock, wholesalePrice: v.wholesale, retailPrice });
+    return { product, createdProduct, created: false, stockChange: before === v.stock ? null : { product, variant, before } };
+  }
+  variant = { sku: newSku, size: v.size, color: v.color, stock: v.stock, reserved: 0, wholesalePrice: v.wholesale, retailPrice };
+  product.variants.push(variant);
+  return { product, createdProduct, created: true, stockChange: { product, variant, before: 0 } };
+}
+
+// Valida fila por fila. Las válidas se aplican al catálogo aunque otras fallen; las inválidas se
+// reportan como { row, field, message } (field es null cuando el error es de la fila completa).
+// Un archivo que no se puede leer devuelve { fatal, errors } y no cambia nada.
+function importCatalogCsv(csvText, catalog) {
+  const { records, unclosedQuoteLine } = parseCsv(csvText, detectDelimiter(csvText));
+  if (unclosedQuoteLine) {
+    const message = `Hay comillas sin cerrar desde la línea ${unclosedQuoteLine}: revisa el archivo.`;
+    return { fatal: message, errors: [{ row: unclosedQuoteLine, field: null, message }] };
+  }
+  if (records.length === 0) return { fatal: 'El archivo está vacío.', errors: [] };
+  const headers = records[0].cells.map(normalizeHeader);
   const missing = REQUIRED_COLUMNS.filter(c => !headers.includes(c));
   if (missing.length) {
-    return { fatal: `Faltan columnas obligatorias: ${missing.join(', ')}.` };
+    return { fatal: `Faltan columnas obligatorias: ${missing.join(', ')}.`, errors: missing.map(c => ({ row: records[0].line, field: c, message: 'Columna obligatoria ausente en el encabezado.' })) };
   }
+  const unknown = headers.filter(h => h && !REQUIRED_COLUMNS.includes(h) && !OPTIONAL_COLUMNS.includes(h));
 
   const errors = [];
   const seen = new Set();
-  let imported = 0;
-  const created = [];
+  const created = new Set();
   const updated = new Set();
+  const stockChanges = [];
+  let imported = 0;
+  let updatedRows = 0;
 
-  rows.slice(1).forEach((cells, idx) => {
-    const rowNumber = idx + 2; // fila 1 es el encabezado
+  records.slice(1).forEach(({ line, cells }) => {
+    if (cells.length > headers.length && cells.slice(headers.length).some(c => c.trim())) {
+      errors.push({ row: line, field: null, message: `La fila tiene ${cells.length} columnas y el encabezado ${headers.length}: revisa comas o comillas.` });
+      return;
+    }
     const r = Object.fromEntries(headers.map((h, i) => [h, (cells[i] || '').trim()]));
-    const fail = reason => errors.push({ row: rowNumber, reason });
-
-    const empty = REQUIRED_COLUMNS.filter(c => !r[c]);
-    if (empty.length) return fail(`Campos vacíos: ${empty.join(', ')}.`);
-    const category = normalizeHeader(r.categoria);
-    if (!config.CATEGORIES.includes(category)) return fail(`Categoría "${r.categoria}" no válida. Usa: ${config.CATEGORIES.join(', ')}.`);
-    const size = r.talla.toUpperCase();
-    if (!config.SIZES.includes(size)) return fail(`Talla "${r.talla}" no válida. Usa: ${config.SIZES.join(', ')}.`);
-    const styles = splitList(r.estilo);
-    const badStyles = styles.filter(s => !config.STYLES.includes(s));
-    if (!styles.length || badStyles.length) return fail(`Estilo "${r.estilo}" no válido. Usa: ${config.STYLES.join(', ')} (separados por |).`);
-    const occasions = splitList(r.ocasion);
-    const badOcc = occasions.filter(o => !config.OCCASIONS.includes(o));
-    if (!occasions.length || badOcc.length) return fail(`Ocasión "${r.ocasion}" no válida. Usa: ${config.OCCASIONS.join(', ')} (separadas por |).`);
-    const wholesale = Number(r.precio_mayorista.replace(/[.\s$]/g, ''));
-    if (!Number.isInteger(wholesale) || wholesale <= 0) return fail(`Precio mayorista "${r.precio_mayorista}" debe ser un entero positivo en COP.`);
-    const stock = Number(r.stock);
-    if (!Number.isInteger(stock) || stock < 0) return fail(`Stock "${r.stock}" debe ser un entero mayor o igual a 0.`);
-    const salePrice = r.precio_venta ? Number(r.precio_venta.replace(/[.\s$]/g, '')) : null;
-    if (r.precio_venta && (!Number.isInteger(salePrice) || salePrice <= 0)) return fail(`Precio de venta "${r.precio_venta}" no válido.`);
-
-    const key = `${slug(r.marca)}|${slug(r.nombre)}|${size}|${slug(r.color)}`;
-    if (seen.has(key)) return fail('Fila duplicada: la misma prenda, talla y color ya aparece antes en el archivo.');
+    const { errors: rowErrors, value } = validateRow(r);
+    if (rowErrors.length) {
+      rowErrors.forEach(e => errors.push({ row: line, ...e }));
+      return;
+    }
+    const key = value.sku || `${slug(value.brandName)}|${slug(value.name)}|${value.size}|${slug(value.color)}`;
+    if (seen.has(key)) {
+      errors.push({ row: line, field: value.sku ? 'sku' : null, message: 'Fila duplicada: la misma variante ya aparece antes en el archivo.' });
+      return;
+    }
     seen.add(key);
 
-    let product = catalog.find(p => slug(p.brandName) === slug(r.marca) && slug(p.name) === slug(r.nombre));
-    if (!product) {
-      const nextNum = catalog.reduce((max, p) => Math.max(max, Number((p.id.match(/(\d+)$/) || [0, 0])[1])), 0) + 1;
-      product = {
-        id: `prod-${String(nextNum).padStart(2, '0')}`,
-        name: r.nombre,
-        brandId: slug(r.marca),
-        brandName: r.marca,
-        brandCity: r.ciudad || 'Colombia',
-        category,
-        type: r.tipo || category,
-        color: r.color,
-        colorName: r.color,
-        fabric: r.tejido || 'Por confirmar',
-        fit: ['ajustado', 'regular', 'holgado'].includes(normalizeHeader(r.corte || '')) ? normalizeHeader(r.corte) : 'regular',
-        line: ['u', 'm', 'f'].includes((r.linea || '').toLowerCase()) ? r.linea.toLowerCase() : 'u',
-        styles,
-        occasions,
-        priceCOP: salePrice || Math.round(wholesale / config.WHOLESALE_RATIO_DEFAULT),
-        wholesalePriceCOP: wholesale,
-        story: '',
-        care: '',
-        imageUrl: /^https?:\/\//.test(r.imagen_url || '') ? r.imagen_url : DEFAULT_IMAGE,
-        variants: [],
-        importedAt: new Date().toISOString()
-      };
-      catalog.push(product);
-      created.push(product.id);
-    } else {
-      product.wholesalePriceCOP = wholesale;
-      delete product.wholesaleEstimated;
-      if (!created.includes(product.id)) updated.add(product.id);
+    const result = upsertRow(value, r, catalog);
+    if (result.error) {
+      errors.push({ row: line, ...result.error });
+      return;
     }
-
-    const variant = product.variants.find(v => v.size === size && slug(v.color) === slug(r.color));
-    if (variant) variant.stock = stock;
-    else product.variants.push({ size, color: r.color, stock });
-    imported++;
+    if (result.createdProduct) created.add(result.product.id);
+    else if (!created.has(result.product.id)) updated.add(result.product.id);
+    if (result.stockChange) stockChanges.push(result.stockChange);
+    normalizeProduct(result.product);
+    if (result.created) imported++;
+    else updatedRows++;
   });
 
   return {
     imported,
-    rejected: errors.length,
-    createdProducts: created,
+    updated: updatedRows,
+    rejected: errors.length ? new Set(errors.map(e => e.row)).size : 0,
+    errors,
+    createdProducts: [...created],
     updatedProducts: [...updated],
-    errors
+    ignoredColumns: unknown,
+    stockChanges
   };
 }
 
-module.exports = { normalizeProduct, stockInSize, productSizes, parseCsv, importCatalogCsv };
+// ---------------------------------------------------------------
+// Product form validation (SCRUM-40, SCRUM-41)
+// ---------------------------------------------------------------
+
+const TEXT_LIMIT = 500;
+const isPositiveInt = n => Number.isInteger(n) && n > 0;
+const isText = (value, max) => typeof value === 'string' && value.trim().length > 0 && value.trim().length <= max;
+
+// Style and occasion tags must come from the controlled vocabulary (domain/vocab.js).
+function validateTags(input, errors) {
+  const { isStyle, isOccasion, STYLES, OCCASIONS } = require('./domain/vocab');
+  const valid = (list, check) => Array.isArray(list) && list.length > 0 && list.every(check) && new Set(list).size === list.length;
+  if (input.styles !== undefined && !valid(input.styles, isStyle)) {
+    errors.push({ field: 'styles', message: `Elige al menos un estilo, sin repetir, entre: ${STYLES.join(', ')}.` });
+  }
+  if (input.occasions !== undefined && !valid(input.occasions, isOccasion)) {
+    errors.push({ field: 'occasions', message: `Elige al menos una ocasión, sin repetir, entre: ${OCCASIONS.join(', ')}.` });
+  }
+}
+
+// Validates the variants of the product form. A known sku updates that variant (stock and
+// prices); anything else is a new variant that needs size, color and a free sku.
+function validateVariants(list, catalog, existing, fail) {
+  const variants = [];
+  const keys = new Set((existing ? existing.variants : []).map(v => `${v.size}|${slug(v.color)}`));
+  const seenSkus = new Set();
+  list.forEach((v, i) => {
+    const field = `variants[${i}]`;
+    if (!v || typeof v !== 'object') return fail(field, 'Variante no válida.');
+    const sku = typeof v.sku === 'string' && v.sku.trim() ? v.sku.trim().toUpperCase() : null;
+    if (sku && !SKU_RE.test(sku)) return fail(`${field}.sku`, `SKU "${v.sku}" no válido: usa de 2 a 40 letras, números o guiones.`);
+    if (sku && seenSkus.has(sku)) return fail(`${field}.sku`, `El SKU ${sku} está repetido.`);
+    if (sku) seenSkus.add(sku);
+    if (!Number.isInteger(v.stock) || v.stock < 0) return fail(`${field}.stock`, 'El stock debe ser un entero mayor o igual a 0.');
+    const badPrice = ['wholesalePrice', 'retailPrice'].find(key => v[key] !== undefined && !isPositiveInt(v[key]));
+    if (badPrice) return fail(`${field}.${badPrice}`, 'El precio debe ser un entero positivo en COP.');
+    const own = existing && sku ? existing.variants.find(x => x.sku === sku) : null;
+    if (own) {
+      if (v.stock < own.reserved) return fail(`${field}.stock`, `El stock no puede ser menor que las ${own.reserved} unidades reservadas.`);
+      return variants.push({ sku, stock: v.stock, wholesalePrice: v.wholesalePrice, retailPrice: v.retailPrice });
+    }
+    if (!config.SIZES.includes(v.size)) return fail(`${field}.size`, `Talla no válida. Usa: ${config.SIZES.join(', ')}.`);
+    if (!isText(v.color, 60)) return fail(`${field}.color`, 'El color de la variante es obligatorio.');
+    const key = `${v.size}|${slug(v.color)}`;
+    if (keys.has(key)) return fail(field, `Ya existe la talla ${v.size} en color ${v.color.trim()}.`);
+    keys.add(key);
+    if (sku && catalog.some(p => (p.variants || []).some(x => x.sku === sku))) return fail(`${field}.sku`, `El SKU ${sku} ya existe en el catálogo.`);
+    variants.push({ sku, size: v.size, color: v.color.trim(), stock: v.stock, wholesalePrice: v.wholesalePrice, retailPrice: v.retailPrice, isNew: true });
+  });
+  return variants;
+}
+
+// Validates the admin product form and returns only whitelisted fields (no mass assignment).
+// With `existing` (an update) every field is optional; on create the core fields are required.
+// Variants that are not sent stay as they are (set stock 0 to stop offering one).
+function validateProductInput(input, catalog, existing = null) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return { errors: [{ field: null, message: 'Envía los datos de la prenda.' }], fields: {}, variants: [] };
+  }
+  const errors = [];
+  const fail = (field, message) => errors.push({ field, message });
+  const has = key => input[key] !== undefined;
+  const required = key => !existing || has(key);
+  const fields = {};
+
+  const text = (key, label, max) => {
+    if (!required(key)) return;
+    if (!isText(input[key], max)) return fail(key, `${label} es obligatorio (máximo ${max} caracteres).`);
+    fields[key] = input[key].trim();
+  };
+  const optionalText = (key, label, max = TEXT_LIMIT) => {
+    if (!has(key)) return;
+    if (typeof input[key] !== 'string' || input[key].length > max) return fail(key, `${label} debe ser texto de máximo ${max} caracteres.`);
+    fields[key] = input[key].trim();
+  };
+  const oneOf = (key, allowed, message, fallback) => {
+    if (has(key)) {
+      if (!allowed.includes(input[key])) return fail(key, message);
+      fields[key] = input[key];
+    } else if (!existing && fallback !== undefined) fields[key] = fallback;
+    else if (!existing) fail(key, message);
+  };
+
+  text('name', 'El nombre', 120);
+  text('brandName', 'La marca', 80);
+  optionalText('brandCity', 'La ciudad de la marca', 80);
+  optionalText('type', 'El tipo', 60);
+  optionalText('colorName', 'El color', 60);
+  optionalText('fabric', 'El tejido', 200);
+  optionalText('story', 'La historia');
+  optionalText('care', 'El cuidado');
+  oneOf('category', config.CATEGORIES, `Categoría no válida. Usa: ${config.CATEGORIES.join(', ')}.`);
+  oneOf('fit', FITS, `Corte no válido. Usa: ${FITS.join(', ')}.`, 'regular');
+  oneOf('line', LINES, 'Línea no válida. Usa: u (unisex), m o f.', 'u');
+  if (has('imageUrl')) {
+    if (typeof input.imageUrl !== 'string' || !/^https?:\/\/\S+$/.test(input.imageUrl)) fail('imageUrl', 'La imagen debe ser una URL que empiece por http:// o https://.');
+    else fields.imageUrl = input.imageUrl;
+  } else if (!existing) fail('imageUrl', 'Agrega la URL de la fotografía oficial de la prenda.');
+  ['priceCOP', 'wholesalePriceCOP'].forEach(key => {
+    if (!required(key)) return;
+    if (!isPositiveInt(input[key])) fail(key, `${key === 'priceCOP' ? 'El precio de venta' : 'El precio mayorista'} debe ser un entero positivo en COP.`);
+    else fields[key] = input[key];
+  });
+
+  if (!existing && !has('styles')) fail('styles', 'Elige al menos un estilo.');
+  if (!existing && !has('occasions')) fail('occasions', 'Elige al menos una ocasión.');
+  validateTags(input, errors);
+  if (has('styles') && !errors.some(e => e.field === 'styles')) fields.styles = [...input.styles];
+  if (has('occasions') && !errors.some(e => e.field === 'occasions')) fields.occasions = [...input.occasions];
+
+  let variants = [];
+  if (required('variants')) {
+    if (!Array.isArray(input.variants) || (!existing && input.variants.length === 0)) fail('variants', 'Agrega al menos una variante (talla, color y stock).');
+    else variants = validateVariants(input.variants, catalog, existing, fail);
+  }
+  return { errors, fields, variants };
+}
+
+module.exports = { normalizeProduct, stockInSize, availableUnits, isActive, skuFor, slug, listBrands, productSizes, parseCsv, importCatalogCsv, nextProductId, validateProductInput, validateTags, FITS };

@@ -199,7 +199,7 @@ Escenarios Gherkin cubiertos. **3 de 3** (antes 0).
 | El estilista reemplaza una prenda con motivo, validando talla y stock del suscriptor. La corrección queda en `corrections` | backend/routes.js L347 · backend/database.js L442 (`addCorrection`) · alternativas en L312 | Prueba 36 |
 | El despacho se bloquea si la caja no está aprobada (409 "La caja no ha sido aprobada") | backend/routes.js L691 (simulate-step) y L514 (cambio de estado del admin) | Prueba 35 |
 | Rechazo de la propuesta (adicional) | backend/routes.js L378 | Prueba 37 |
-| Rol STYLIST y permisos | backend/routes.js L298 (`/api/stylist/*` para STYLIST y ADMIN) · backend/database.js L92 (usuario estilista@theclothesbox.co / estilista123) | Prueba 34 |
+| Rol STYLIST y permisos | backend/routes.js L298 (`/api/stylist/*` para STYLIST y ADMIN) · backend/database.js L92 (usuario estilista; desde F5 se siembra con STYLIST_EMAIL y STYLIST_PASSWORD, sin contraseña en el código) | Prueba 34 |
 
 Detalles.
 - **Estados.** PROPOSED → APPROVED → PREPARING → SHIPPED → DELIVERED → RATED. Las cajas creadas antes de HU-07 (PREPARING, SHIPPED…) se consideran aprobadas.
@@ -615,3 +615,65 @@ HU-18 y HU-19 quedan fuera del alcance (Could, después del piloto). Comando de 
 - **Motor.** Ejecución automática del reentrenamiento (HU-11).
 - **Métricas.** Historizar los cambios de plan (HU-17).
 - **Integración real.** Al conectar la pasarela de pagos, el proveedor de facturación DIAN, el operador logístico y el correo, cada adaptador debe recibir su proveedor real con la misma interfaz.
+
+---
+
+## Sesión de Alineación Final Jira vs. Código (12/11/2026)
+
+**Rama de Integración:** `integration/jira-alignment`  
+**Comando de prueba:** `npm test` (`node --test tests/`) · **136 de 136 pruebas en verde (0 fallos)**.  
+**Comando de evaluación offline:** `npm run eval` (`node scripts/eval-recommender.js`) · **100 % de restricciones duras cumplidas** en 30 perfiles sintéticos.
+
+### Cierre de Brechas por Flujo de Trabajo
+
+1. **Base Técnica (F1 a F10):**
+   - Migración al runner nativo `node:test` con puertos efímeros y aislamiento por archivo temporal.
+   - Refactorización modular de rutas (`backend/routes/`) y repositorios (`backend/repos/`).
+   - Adaptadores desacoplados tras interfaces unificadas (`backend/adapters/`).
+   - Control de acceso por roles (`CLIENT`, `ADMIN`, `STYLIST`, `WAREHOUSE`).
+   - Flujo CI en `.github/workflows/ci.yml` y configuración en `.env.example`.
+
+2. **Stream A (HU-05 Catálogo e Inventario):**
+   - Stock real por talla/color con movimientos de inventario (`DISPATCH_OUT`, `RETURN_IN`).
+   - Importación CSV validada de hasta 2 MB.
+   - Contrato de datos con marcas en `docs/data-contract-brands.md`.
+
+3. **Stream B (HU-01, HU-02, HU-04, HU-16):**
+   - Validación estricta de medidas antropométricas en servidor (422).
+   - Tabla de equivalencias de tallas de marcas en seed JSON y panel admin.
+   - Cifrado en reposo de medidas con AES-256-GCM.
+   - Derechos ARCO: rectificación, exportación JSON (`/api/me/export`) y supresión con bloqueo por cobros pendientes.
+
+4. **Stream C1 (HU-03 Quiz y HU-07 Estilistas):**
+   - Banco de preguntas del quiz en seed JSON y reanudación de progreso (`PUT /api/quiz/progress`).
+   - Protocolo de pruebas de usabilidad en `docs/usability-test-protocol.md`.
+   - Cola de revisión de estilistas con reemplazo, aprobación con motivo y generación de ejemplos de corrección.
+
+5. **Stream D1 y D2 (HU-08 Pasarela, HU-12/13 Suscripción, HU-15 Facturación):**
+   - Tokenización en navegador (cero datos de tarjeta en servidor).
+   - Webhook firmado criptográficamente con conciliación automática.
+   - Oferta previa de retención con pausa al intentar cancelar y encuesta opcional.
+   - Facturación electrónica con cola de reintentos (`PENDING_RETRY`) y alertas a operaciones.
+
+6. **Stream C2 (HU-06 Recomendador y HU-11 Feedback):**
+   - Cumplimiento del 100 % de restricciones duras en perfiles sintéticos.
+   - Explicación de recomendaciones persistida en la caja.
+   - Normalización de eventos en `feedbackEvents` y regla acotada de actualización de pesos.
+   - Versionado de modelos de reglas (`modelVersions`, `reglas-v2`).
+
+7. **Stream E1 (HU-09 Despacho, HU-10 Calificación, HU-14 Devoluciones):**
+   - Guardas de despacho (409 si no está aprobada por estilista) e ingreso manual de transportadora/guía.
+   - Checklist de empaque con bandera sostenible (`sustainablePackaging: true`).
+   - Calificación entera separando ajuste y estilo; cálculo real de satisfacción sin default silencioso de 4.0.
+   - Borrador de política de devoluciones en `docs/return-policy.md`.
+   - Cálculo de días hábiles descontando festivos oficiales colombianos de 2026.
+   - Generación de guía inversa imprimible (`GET /api/returns/:id/guide`) y métricas por marca.
+
+8. **Stream E2 (HU-17 Tablero KPI y Prueba de Humo):**
+   - Formulación matemática de métricas en `docs/kpi-definitions.md`.
+   - Job de materialización periódica en `kpi_snapshots`.
+   - Umbrales configurables en `settings` (churn 9 %, satisfacción 4.0, devoluciones 10 %) con alertas.
+   - Aislamiento de datos demo (`isDemo: true`).
+   - Prueba de humo integral (`tests/e2e.smoke.test.js`) cubriendo el ciclo de vida completo y 6 caminos negativos.
+
+Consulte el informe detallado en `docs/alignment/report.md` y la propuesta de actualización en `docs/alignment/jira-update-proposal.md`.

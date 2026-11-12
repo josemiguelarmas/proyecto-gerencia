@@ -16,7 +16,7 @@ const { normalizeProduct, stockInSize } = require('../backend/catalog');
 const { calculateFit } = require('../backend/engine');
 const { applyRating, applyCorrection } = require('../backend/learning');
 
-const CATALOG_FILE = process.env.TCB_CATALOG_FILE || path.join(__dirname, '..', 'backend', 'data', 'catalog.json');
+const CATALOG_FILE = process.env.TCB_CATALOG_FILE || path.join(__dirname, '..', 'backend', 'data', 'seed', 'catalog.json');
 
 // Generador pseudoaleatorio con semilla para que el resultado sea reproducible.
 function rng(seed) {

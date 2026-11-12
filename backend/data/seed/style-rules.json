@@ -1,0 +1,65 @@
+{
+  "_comment": "Reglas de estilo iniciales del motor de recomendación",
+  "status": "pendiente de validación del estilista",
+  "version": "1.0.0",
+  "styles": {
+    "urbano": {
+      "name": "Urbano",
+      "description": "Prendas cómodas para la ciudad, predominio de denim, camisetas gráficas y zapatillas.",
+      "affinity": ["minimal", "deportivo"],
+      "defaultWeight": 1.0
+    },
+    "minimal": {
+      "name": "Minimal",
+      "description": "Siluetas limpias, ausencia de estampados, paletas neutras (blanco, negro, beige, gris).",
+      "affinity": ["clasico", "urbano"],
+      "defaultWeight": 1.0
+    },
+    "retro": {
+      "name": "Retro",
+      "description": "Inspiración en décadas pasadas (70s a 90s), cortes vintage y detalles nostálgicos.",
+      "affinity": ["artesanal", "urbano"],
+      "defaultWeight": 1.0
+    },
+    "clasico": {
+      "name": "Clásico",
+      "description": "Prendas atemporales estructuradas: camisería, sastrería y tonos sobrios.",
+      "affinity": ["minimal"],
+      "defaultWeight": 1.0
+    },
+    "deportivo": {
+      "name": "Deportivo",
+      "description": "Prendas activas de alto confort, textiles elásticos y transpirables.",
+      "affinity": ["urbano"],
+      "defaultWeight": 1.0
+    },
+    "artesanal": {
+      "name": "Artesanal",
+      "description": "Confección local, texturas orgánicas, fibras naturales y piezas con identidad colombiana.",
+      "affinity": ["retro", "urbano"],
+      "defaultWeight": 1.0
+    }
+  },
+  "occasions": {
+    "clase": {
+      "label": "el día a día",
+      "preferredStyles": ["urbano", "minimal", "deportivo"],
+      "weight": 2.5
+    },
+    "fiesta": {
+      "label": "salidas",
+      "preferredStyles": ["retro", "urbano", "clasico"],
+      "weight": 2.5
+    },
+    "entrevista": {
+      "label": "entrevistas y reuniones",
+      "preferredStyles": ["clasico", "minimal"],
+      "weight": 3.0
+    }
+  },
+  "cuts": {
+    "ajustado": { "easeTop": 4, "easeBottom": 2 },
+    "regular": { "easeTop": 8, "easeBottom": 4 },
+    "holgado": { "easeTop": 14, "easeBottom": 8 }
+  }
+}

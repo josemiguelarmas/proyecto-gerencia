@@ -28,7 +28,7 @@ TCB.views.landing = (() => {
             <a class="btn btn--ghost btn--lg" href="#/devoluciones">Devoluciones por talla</a>
           ` : `
             <a class="btn btn--gold btn--lg" href="#/empezar">Descubrir mi estilo ${icon('arrowR')}</a>
-            <button type="button" class="btn btn--ghost btn--lg" data-open-demo>Probar cuenta demo (1 clic)</button>
+            <button type="button" class="btn btn--ghost btn--lg" data-open-login>Ya tengo cuenta</button>
           `}
         </div>
 
@@ -263,15 +263,8 @@ TCB.views.landing = (() => {
   }
 
   function mount(root) {
-    root.querySelector('[data-open-demo]')?.addEventListener('click', async () => {
-      try {
-        await TCB.api.auth.login('demo@theclothesbox.co', 'demo123');
-        await TCB.state.loadUserSession();
-        TCB.state.toast('Sesión iniciada con la cuenta de demostración.');
-        window.location.hash = '#/caja';
-      } catch (e) {
-        TCB.state.toast('Error al iniciar cuenta demo.', { type: 'danger' });
-      }
+    root.querySelector('[data-open-login]')?.addEventListener('click', () => {
+      TCB.views.auth.openLoginModal();
     });
   }
 

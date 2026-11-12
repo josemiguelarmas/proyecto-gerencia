@@ -24,9 +24,9 @@ TCB.views.profile = (() => {
       `;
     }
 
-    const height = profile.heightCm || 178;
-    const weight = profile.weightKg || 74;
-    const bmi = (weight / Math.pow(height / 100, 2)).toFixed(1);
+    const height = profile.measures?.height || profile.heightCm || '';
+    const weight = profile.measures?.weight || profile.weightKg || '';
+    const bmi = (height && weight) ? (Number(weight) / Math.pow(Number(height) / 100, 2)).toFixed(1) : '--';
 
     return `
       <div class="screen wrap">
@@ -62,7 +62,7 @@ TCB.views.profile = (() => {
               </div>
               <div class="field" style="grid-column:1 / -1">
                 <label for="p-address">Dirección de entrega en Cali</label>
-                <input class="input" id="p-address" name="address" type="text" value="${profile.address || 'Av. San Joaquín # 14-80, Ciudad Jardín, Cali'}" required>
+                <input class="input" id="p-address" name="address" type="text" value="${profile.address || ''}" placeholder="Ej: Av. San Joaquín # 14-80, Ciudad Jardín, Cali" required>
                 <p class="small muted" style="margin-top:4px">Aquí llegarán mensualmente tus cajas y se recogerán los cambios de talla.</p>
               </div>
             </div>
@@ -140,15 +140,15 @@ TCB.views.profile = (() => {
             <div class="grid" style="--cols:repeat(auto-fit, minmax(240px, 1fr));gap:16px">
               <div class="field">
                 <label for="p-ref-brand">Marca de la prenda</label>
-                <input class="input" id="p-ref-brand" name="refBrand" type="text" value="${profile.referenceGarment?.brand || 'Zara'}" placeholder="Ej: Zara, Mango, Levi's">
+                <input class="input" id="p-ref-brand" name="refBrand" type="text" value="${profile.referenceGarment?.brand || ''}" placeholder="Ej: Zara, Mango, Levi's">
               </div>
               <div class="field">
                 <label for="p-ref-size">Talla en esa marca</label>
-                <input class="input" id="p-ref-size" name="refSize" type="text" value="${profile.referenceGarment?.size || 'M'}" placeholder="Ej: M o 32">
+                <input class="input" id="p-ref-size" name="refSize" type="text" value="${profile.referenceGarment?.size || ''}" placeholder="Ej: M o 32">
               </div>
               <div class="field" style="grid-column:1 / -1">
                 <label for="p-ref-notes">¿Por qué te queda bien?</label>
-                <input class="input" id="p-ref-notes" name="refNotes" type="text" value="${profile.referenceGarment?.notes || 'Caída recta en hombros y no se encoge'}" placeholder="Ej: Buen largo de manga y no me aprieta el pecho">
+                <input class="input" id="p-ref-notes" name="refNotes" type="text" value="${profile.referenceGarment?.notes || ''}" placeholder="Ej: Buen largo de manga y no me aprieta el pecho">
               </div>
             </div>
           </section>
@@ -313,7 +313,7 @@ TCB.views.profile = (() => {
       on('resume', () => runAction(root, () => TCB.api.subscription.resume()));
       on('plan', () => openPlanModal(root, sub, planChange, cfg));
       on('card', () => openCardModal(root, cfg));
-      on('cancel', () => (status === 'ACTIVE' && !sub.dunning ? openPauseInsteadModal(root) : openCancelModal(() => renderSubscription(root))));
+      on('cancel', () => startCancellation(root));
     } catch (e) {
       bodyEl.innerHTML = `<p class="small error">No pudimos cargar tu suscripción.</p>`;
     }
@@ -334,12 +334,23 @@ TCB.views.profile = (() => {
     });
   }
 
-  // HU-12: antes de cancelar se ofrece pausar como alternativa.
-  function openPauseInsteadModal(root) {
+  // HU-12 (SCRUM-83): el backend responde primero la oferta de retención; la cancelación solo
+  // se completa cuando la persona la confirma en la encuesta (confirm: true).
+  async function startCancellation(root) {
+    try {
+      const res = await TCB.api.subscription.cancel({});
+      if (res.offer && res.offer.type === 'PAUSE') openPauseInsteadModal(root, res.offer);
+      else openCancelModal(() => renderSubscription(root));
+    } catch (err) {
+      TCB.state.toast(err.data?.error || err.message, { type: 'danger' });
+    }
+  }
+
+  function openPauseInsteadModal(root, offer) {
     TCB.state.modal({
       eyebrow: 'Cancelar suscripción',
-      title: '¿Prefieres pausar un mes?',
-      body: '<p class="small">Si necesitas un respiro, pausa tu plan: no te cobramos ni despachamos el próximo mes y se reanuda solo. Tu perfil de estilo se conserva.</p>',
+      title: `¿Prefieres pausar ${offer.months === 1 ? 'un mes' : `${offer.months} meses`}?`,
+      body: `<p class="small">Si necesitas un respiro, pausa tu plan: no te cobramos ni despachamos el próximo mes y se reanuda solo el <strong>${day(offer.resumesOn)}</strong>. Tu perfil de estilo se conserva.</p>`,
       foot: '<button type="button" class="btn btn--quiet" data-cancel-anyway style="color:var(--danger)">Quiero cancelar</button><button type="button" class="btn btn--gold" data-pause>Pausar 1 mes</button>',
       onMount(modalEl, close) {
         modalEl.querySelector('[data-pause]').addEventListener('click', () => {
@@ -491,7 +502,7 @@ TCB.views.profile = (() => {
           try {
             const res = await TCB.api.account.remove(e.target.elements.password.value);
             close();
-            TCB.api.auth.logout();
+            TCB.api.setToken(null); // la cuenta ya no existe: no hay sesión que revocar
             TCB.state.set({ user: null, profile: null, currentBox: null });
             TCB.state.toast(res.message, { ms: 7000 });
             window.location.hash = '#/';
@@ -539,6 +550,7 @@ TCB.views.profile = (() => {
           const checked = form.querySelector('input[name="reason"]:checked');
           try {
             const res = await TCB.api.subscription.cancel({
+              confirm: true,
               reason: checked ? checked.value : null,
               comment: form.elements.comment.value.trim()
             });
@@ -598,10 +610,20 @@ TCB.views.profile = (() => {
           }
         }
 
+        const height = Number(form.heightCm.value) || undefined;
+        const weight = Number(form.weightKg.value) || undefined;
         const updatedData = {
           address: form.address.value.trim(),
-          heightCm: Number(form.heightCm.value),
-          weightKg: Number(form.weightKg.value),
+          heightCm: height,
+          weightKg: weight,
+          measures: {
+            height,
+            weight,
+            build: form.bodyBuild.value.toLowerCase(),
+            usual: form.usualSizeTop.value,
+            refBrand: form.refBrand.value.trim().toLowerCase(),
+            refSize: form.refSize.value.trim()
+          },
           bodyBuild: form.bodyBuild.value,
           fitPreference: form.fitPreference.value,
           usualSizeTop: form.usualSizeTop.value,

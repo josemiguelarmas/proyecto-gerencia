@@ -74,7 +74,15 @@ TCB.api = (() => {
       verifyEmail: token => request('/api/auth/verify-email', { method: 'POST', body: { token } }),
       resendVerification: () => request('/api/auth/resend-verification', { method: 'POST' }),
       me: () => request('/api/auth/me'),
-      logout: () => {
+      // Revoca el token en el servidor (todas las sesiones) y lo borra del navegador.
+      logout: async () => {
+        if (getToken()) {
+          try {
+            await request('/api/auth/logout', { method: 'POST' });
+          } catch (e) {
+            // La sesión ya no era válida: basta con borrar el token local.
+          }
+        }
         setToken(null);
       }
     },
@@ -88,9 +96,6 @@ TCB.api = (() => {
     },
     policy: () => request('/api/policy'),
     config: () => request('/api/config'),
-    payments: {
-      tokenize: card => request('/api/payments/tokenize', { method: 'POST', body: { card } })
-    },
     subscription: {
       get: () => request('/api/subscription'),
       subscribe: data => request('/api/subscription/subscribe', { method: 'POST', body: data }),
@@ -136,6 +141,11 @@ TCB.api = (() => {
       products: () => request('/api/admin/products'),
       saveProduct: data => request('/api/admin/products', { method: 'POST', body: data }),
       importProducts: csv => request('/api/admin/products/import', { method: 'POST', body: { csv } }),
+      importCatalogCsv: csv => request('/api/admin/catalog/import', { method: 'POST', body: csv, headers: { 'Content-Type': 'text/csv; charset=utf-8' } }),
+      updateProduct: (productId, data) => request(`/api/admin/products/${productId}`, { method: 'PUT', body: data }),
+      deleteProduct: productId => request(`/api/admin/products/${productId}`, { method: 'DELETE' }),
+      restoreProduct: productId => request(`/api/admin/products/${productId}/restore`, { method: 'POST' }),
+      catalogVocab: () => request('/api/admin/catalog/vocab'),
       generateBatch: () => request('/api/admin/boxes/generate-batch', { method: 'POST' }),
       boxes: () => request('/api/admin/boxes'),
       updateBoxStatus: (boxId, status) => request(`/api/admin/boxes/${boxId}/status`, { method: 'POST', body: { status } }),

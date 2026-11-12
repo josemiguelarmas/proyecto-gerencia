@@ -4,14 +4,29 @@ const os = require('os');
 const path = require('path');
 const assert = require('assert');
 
-// Las pruebas corren sobre una copia temporal de la base y de la bandeja de salida,
-// para no ensuciar backend/data/db.json.
+// Las pruebas corren sobre una base, un catálogo y una bandeja de salida temporales.
+// La base no existe al arrancar, así que se crea desde backend/data/seed/db.json.
 const TMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'tcb-test-'));
 process.env.TCB_DB_FILE = path.join(TMP_DIR, 'db.json');
 process.env.TCB_OUTBOX_FILE = path.join(TMP_DIR, 'outbox.json');
 process.env.TCB_CATALOG_FILE = path.join(TMP_DIR, 'catalog.json');
-fs.copyFileSync(path.join(__dirname, '..', 'backend', 'data', 'db.json'), process.env.TCB_DB_FILE);
-fs.copyFileSync(path.join(__dirname, '..', 'backend', 'data', 'catalog.json'), process.env.TCB_CATALOG_FILE);
+fs.copyFileSync(path.join(__dirname, '..', 'backend', 'data', 'seed', 'catalog.json'), process.env.TCB_CATALOG_FILE);
+// F7: con NODE_ENV=test no arrancan las tareas programadas; las pruebas las disparan a mano.
+process.env.NODE_ENV = 'test';
+// F5: el backend ya no trae un secreto JWT por defecto; esta prueba usa uno aleatorio.
+process.env.JWT_SECRET = require('crypto').randomBytes(32).toString('hex');
+// F5: las cuentas internas y la contraseña del cliente demo se siembran desde variables de
+// entorno (ya no hay contraseñas en el código). Esta prueba define las suyas, aleatorias.
+const TEST_PASSWORDS = {
+  admin: `Admin-${require('crypto').randomBytes(6).toString('hex')}-1`,
+  stylist: `Estilista-${require('crypto').randomBytes(6).toString('hex')}-1`,
+  demo: `Demo-${require('crypto').randomBytes(6).toString('hex')}-1`
+};
+process.env.ADMIN_EMAIL = 'admin@theclothesbox.co';
+process.env.ADMIN_PASSWORD = TEST_PASSWORDS.admin;
+process.env.STYLIST_EMAIL = 'estilista@theclothesbox.co';
+process.env.STYLIST_PASSWORD = TEST_PASSWORDS.stylist;
+process.env.DEMO_CLIENT_PASSWORD = TEST_PASSWORDS.demo;
 
 const { startServer } = require('../backend/server');
 const { db } = require('../backend/database');
@@ -19,7 +34,7 @@ const { curateBox, scoreProduct } = require('../backend/engine');
 const { stockInSize } = require('../backend/catalog');
 const config = require('../backend/config');
 const billing = require('../backend/billing');
-const payments = require('../backend/payments');
+const payments = require('../backend/adapters/payments');
 
 const TEST_PORT = 3199;
 
@@ -75,13 +90,23 @@ const CARD_DECLINE = '4000 0000 0000 0002';
 const CARD_FIRST_ONLY = '4000 0000 0000 0341';
 const FISCAL = { docType: 'CC', docNumber: '1144123456', address: 'Calle 5 # 38-20, San Fernando', city: 'Cali' };
 
-async function tokenizeCard(number, token) {
-  const res = await request('POST', '/api/payments/tokenize', { card: { number, expMonth: 12, expYear: 2030, cvc: '123', holder: 'Usuario Prueba' } }, token);
-  return res.body.token;
+// SCRUM-57: la tarjeta se tokeniza en el navegador con el SDK de la pasarela simulada; el
+// servidor ya no tiene POST /api/payments/tokenize. La prueba usa el mismo SDK del frontend.
+const simulatedGateway = require('../frontend/js/simulatedGateway');
+async function tokenizeCard(number) {
+  return simulatedGateway.tokenize({ number, expMonth: 12, expYear: 2030, cvc: '123', holder: 'Usuario Prueba' }).token;
+}
+
+// SCRUM-58: solo un correo verificado puede suscribirse. Las pruebas viejas registran y se
+// suscriben de inmediato, así que marcan el correo como verificado (lo que hace el enlace).
+async function markEmailVerified(token) {
+  const me = await request('GET', '/api/auth/me', null, token);
+  db.updateUser(me.body.user.id, { emailVerified: true });
 }
 
 // HU-08: desde el Sprint 2 la suscripción nace con el primer pago aprobado.
 async function subscribeWith(token, { card = CARD_OK, plan = 'esencial', fiscal = FISCAL } = {}) {
+  await markEmailVerified(token);
   const paymentToken = await tokenizeCard(card, token);
   return request('POST', '/api/subscription/subscribe', { plan, paymentToken, fiscal }, token);
 }
@@ -116,7 +141,7 @@ async function runTests() {
     // 3. Login de usuario demo cliente
     const loginRes = await request('POST', '/api/auth/login', {
       email: 'demo@theclothesbox.co',
-      password: 'demo123'
+      password: TEST_PASSWORDS.demo
     });
     assert.ok(loginRes.status === 200, 'Demo login should succeed');
     assert.ok(loginRes.body.token, 'Should return JWT token');
@@ -152,7 +177,7 @@ async function runTests() {
     const proposedBoxRes = await request('GET', '/api/boxes/current', null, newToken);
     assert.strictEqual(proposedBoxRes.body.box.status, 'PROPOSED');
     assert.strictEqual(proposedBoxRes.body.box.items, null, 'Prendas ocultas también en PROPOSED');
-    const stylistLogin = await request('POST', '/api/auth/login', { email: 'estilista@theclothesbox.co', password: 'estilista123' });
+    const stylistLogin = await request('POST', '/api/auth/login', { email: 'estilista@theclothesbox.co', password: TEST_PASSWORDS.stylist });
     const stylistToken = stylistLogin.body.token;
     const approveRes = await request('POST', `/api/stylist/boxes/${proposedBoxRes.body.box.id}/approve`, {}, stylistToken);
     assert.strictEqual(approveRes.status, 200);
@@ -224,7 +249,7 @@ async function runTests() {
     // 12. Login de Administrador
     const adminLoginRes = await request('POST', '/api/auth/login', {
       email: 'admin@theclothesbox.co',
-      password: 'admin123'
+      password: TEST_PASSWORDS.admin
     });
     assert.ok(adminLoginRes.status === 200, 'Admin login should succeed');
     assert.ok(adminLoginRes.body.user.role === 'ADMIN', 'Admin user must have ADMIN role');
@@ -348,6 +373,9 @@ async function runSprint2Tests({ token, newToken, newEmail, adminToken, delivere
   assert.strictEqual(reuseRes.status, 400, 'El token no se puede reutilizar');
   const loginNew = await request('POST', '/api/auth/login', { email: newEmail, password: 'nuevaClave456' });
   assert.strictEqual(loginNew.status, 200);
+  // Ajuste F5: restablecer la contraseña revoca los tokens anteriores; se sigue con la sesión nueva.
+  assert.strictEqual((await request('GET', '/api/auth/me', null, newToken)).status, 401);
+  newToken = loginNew.body.token;
   console.log('✓ 21. HU-01: recuperación de contraseña (hash, 1 hora, un solo uso) funcionando');
 
   // 22. HU-01: token de recuperación vencido es rechazado
@@ -361,12 +389,17 @@ async function runSprint2Tests({ token, newToken, newEmail, adminToken, delivere
   console.log('✓ 22. HU-01: token de recuperación vencido rechazado');
 
   // 23. HU-01: verificación de correo
-  const meBefore = await request('GET', '/api/auth/me', null, newToken);
+  // SCRUM-58: el usuario de la prueba 5 ya verificó su correo para poder suscribirse, así que
+  // la verificación se prueba con una cuenta recién creada.
+  const unverifiedEmail = `verify_${Date.now()}@test.com`;
+  const unverifiedToken = (await request('POST', '/api/auth/register', validRegistration(unverifiedEmail))).body.token;
+  outbox = (await request('GET', '/api/admin/outbox', null, adminToken)).body.messages;
+  const meBefore = await request('GET', '/api/auth/me', null, unverifiedToken);
   assert.strictEqual(meBefore.body.user.emailVerified, false);
-  const verifyToken = tokenFromMail(lastMailTo(outbox, newEmail, 'EMAIL_VERIFICATION'));
+  const verifyToken = tokenFromMail(lastMailTo(outbox, unverifiedEmail, 'EMAIL_VERIFICATION'));
   const verifyRes = await request('POST', '/api/auth/verify-email', { token: verifyToken });
   assert.strictEqual(verifyRes.status, 200);
-  const meAfter = await request('GET', '/api/auth/me', null, newToken);
+  const meAfter = await request('GET', '/api/auth/me', null, unverifiedToken);
   assert.strictEqual(meAfter.body.user.emailVerified, true);
   console.log('✓ 23. HU-01: verificación de correo marca emailVerified (sin bloquear el inicio de sesión)');
 
@@ -407,9 +440,10 @@ async function runSprint2Tests({ token, newToken, newEmail, adminToken, delivere
   console.log('✓ 25. HU-10: recordatorio de calificación a los 3 días, enviado una sola vez y solo por admin');
 
   // 26. HU-13: cancelación con encuesta y conteo agregado
+  // SCRUM-83: la cancelación se completa solo con confirm: true (sin él responde la oferta de pausa).
   const before = (await request('GET', '/api/admin/cancellation-reasons', null, adminToken)).body;
   assert.strictEqual((await request('GET', '/api/subscription', null, newToken)).body.subscription.status, 'ACTIVE', 'Pagó en la prueba 5');
-  const cancelRes = await request('POST', '/api/subscription/cancel', { reason: 'precio', comment: 'Está caro para mí' }, newToken);
+  const cancelRes = await request('POST', '/api/subscription/cancel', { confirm: true, reason: 'precio', comment: 'Está caro para mí' }, newToken);
   assert.strictEqual(cancelRes.status, 200);
   assert.strictEqual(cancelRes.body.subscription.status, 'CANCELLED');
   assert.strictEqual(cancelRes.body.cancellation.reason, 'precio');
@@ -426,7 +460,7 @@ async function runSprint2Tests({ token, newToken, newEmail, adminToken, delivere
   const silentReg = await request('POST', '/api/auth/register', validRegistration(silentEmail));
   await request('PUT', '/api/profile', { styles: ['minimal'], occasions: ['clase'], fit: 'regular', line: 'u', plan: 'estilo', measures: { height: 170, weight: 65, build: 'media', usual: 'M' } }, silentReg.body.token);
   await subscribeWith(silentReg.body.token, { plan: 'estilo' });
-  const silentCancel = await request('POST', '/api/subscription/cancel', {}, silentReg.body.token);
+  const silentCancel = await request('POST', '/api/subscription/cancel', { confirm: true }, silentReg.body.token);
   assert.strictEqual(silentCancel.status, 200);
   assert.strictEqual(silentCancel.body.cancellation.reason, null);
   const afterSilent = (await request('GET', '/api/admin/cancellation-reasons', null, adminToken)).body;
@@ -461,7 +495,7 @@ async function runPrompt2Tests({ token, adminToken, stylistToken, deliveredBox }
 
   // 28. HU-05: todo el catálogo migrado tiene variantes con stock inicial 10
   // Ajuste Prompt 4: se revisa el catálogo versionado; en memoria los despachos de HU-09 ya descontaron stock.
-  const migrated = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'backend', 'data', 'catalog.json'), 'utf8'));
+  const migrated = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'backend', 'data', 'seed', 'catalog.json'), 'utf8'));
   assert.ok(migrated.length >= 18);
   migrated.slice(0, 18).forEach(p => {
     assert.ok(Array.isArray(p.variants) && p.variants.length > 0, `${p.id} sin variantes`);
@@ -480,10 +514,11 @@ async function runPrompt2Tests({ token, adminToken, stylistToken, deliveredBox }
   ].join('\n');
   const importRes = await request('POST', '/api/admin/products/import', { csv }, adminToken);
   assert.strictEqual(importRes.status, 200);
-  assert.strictEqual(importRes.body.imported, 3);
+  assert.strictEqual(importRes.body.imported, 2);
+  assert.strictEqual(importRes.body.updated, 1);
   assert.strictEqual(importRes.body.rejected, 2);
   assert.deepStrictEqual(importRes.body.errors.map(e => e.row), [5, 6]);
-  assert.ok(/Talla/.test(importRes.body.errors[0].reason) && /Categoría/.test(importRes.body.errors[1].reason));
+  assert.ok(/Talla/.test(importRes.body.errors[0].message) && /Categoría/.test(importRes.body.errors[1].message));
   assert.strictEqual(importRes.body.createdProducts.length, 1);
   const imported = db.catalog.find(p => p.name === 'Camisa Prueba CSV');
   assert.deepStrictEqual(imported.variants.map(v => [v.size, v.stock]), [['M', 4], ['L', 2]]);
@@ -669,17 +704,22 @@ async function outboxFor(adminToken, to, type) {
 async function runPrompt3Tests({ adminToken, stylistToken }) {
   console.log('\n--- SPRINT 2 · PROMPT 3 ---');
 
-  // 43. HU-08: la tarjeta se tokeniza y nunca se guarda completa ni con CVV
+  // 43. HU-08: la tarjeta se tokeniza en el navegador y nunca llega completa ni con CVV al servidor
+  // (SCRUM-57: antes se tokenizaba con POST /api/payments/tokenize; ahora con el SDK simulado
+  // del frontend, y el servidor rechaza con 400 cualquier cuerpo con datos de tarjeta).
   const a = await newClientWithoutPlan();
-  assert.strictEqual((await request('POST', '/api/payments/tokenize', { card: { number: '4242 4242 4242 4241', expMonth: 12, expYear: 2030, cvc: '123', holder: 'X' } }, a.token)).status, 400, 'Luhn inválido');
-  assert.strictEqual((await request('POST', '/api/payments/tokenize', { card: { number: CARD_OK, expMonth: 1, expYear: 2020, cvc: '123', holder: 'X' } }, a.token)).status, 400, 'Vencida');
-  const tok = await request('POST', '/api/payments/tokenize', { card: { number: CARD_OK, expMonth: 12, expYear: 2030, cvc: '987', holder: 'Ana Prueba' } }, a.token);
-  assert.strictEqual(tok.status, 200);
+  assert.throws(() => simulatedGateway.tokenize({ number: '4242 4242 4242 4241', expMonth: 12, expYear: 2030, cvc: '123', holder: 'X' }), /no es válido/, 'Luhn inválido');
+  assert.throws(() => simulatedGateway.tokenize({ number: CARD_OK, expMonth: 1, expYear: 2020, cvc: '123', holder: 'X' }), /vencida/, 'Vencida');
+  const tok = { status: 200, body: simulatedGateway.tokenize({ number: CARD_OK, expMonth: 12, expYear: 2030, cvc: '987', holder: 'Ana Prueba' }) };
   assert.deepStrictEqual([tok.body.brand, tok.body.last4], ['Visa', '4242']);
   assert.ok(!tok.body.token.includes('4242424242424242'));
-  console.log('✓ 43. HU-08: tokenización simulada valida la tarjeta y devuelve solo token, marca y últimos 4');
+  const withCard = await request('POST', '/api/subscription/subscribe', { plan: 'esencial', paymentToken: tok.body.token, card: { number: CARD_OK, cvc: '987' }, fiscal: FISCAL }, a.token);
+  assert.strictEqual(withCard.status, 400, 'El servidor no acepta datos de tarjeta');
+  assert.strictEqual((await request('POST', '/api/payments/tokenize', { card: { number: CARD_OK } }, a.token)).status, 404, 'Ya no hay tokenización en el servidor');
+  console.log('✓ 43. HU-08: tokenización en el navegador; el servidor solo recibe token, marca y últimos 4');
 
   // 44. HU-08: suscripción Esencial aprobada con 4242, confirmación en la bandeja de salida
+  await markEmailVerified(a.token);
   const okSub = await request('POST', '/api/subscription/subscribe', { plan: 'esencial', paymentToken: tok.body.token, fiscal: FISCAL }, a.token);
   assert.strictEqual(okSub.status, 201);
   assert.strictEqual(okSub.body.subscription.status, 'ACTIVE');
@@ -776,7 +816,7 @@ async function runPrompt3Tests({ adminToken, stylistToken }) {
   assert.strictEqual((await request('POST', '/api/subscription/pause', {}, pd.token)).status, 409, 'PAST_DUE no se pausa');
   assert.strictEqual((await request('POST', '/api/subscription/change-plan', { plan: 'estilo' }, pd.token)).status, 409, 'PAST_DUE no cambia de plan');
   assert.strictEqual((await request('POST', '/api/subscription/resume', {}, pd.token)).status, 409);
-  assert.strictEqual((await request('POST', '/api/subscription/cancel', {}, pd.token)).status, 200, 'PAST_DUE sí se cancela');
+  assert.strictEqual((await request('POST', '/api/subscription/cancel', { confirm: true }, pd.token)).status, 200, 'PAST_DUE sí se cancela');
   assert.strictEqual((await request('POST', '/api/subscription/pause', {}, pd.token)).status, 409, 'CANCELLED no se pausa');
   assert.strictEqual((await request('POST', '/api/subscription/resume', {}, b.token)).status, 409, 'NONE no se reanuda');
   console.log('✓ 48. HU-12: matriz de 5 estados × 7 acciones y transiciones inválidas por API responden 409');
@@ -833,7 +873,7 @@ async function runPrompt3Tests({ adminToken, stylistToken }) {
   await subscribeWith(cx.token);
   await request('POST', '/api/subscription/pause', {}, cx.token);
   const cxDue = db.getSubscription(cx.userId).nextChargeAt;
-  const cancelled = await request('POST', '/api/subscription/cancel', { reason: 'precio' }, cx.token);
+  const cancelled = await request('POST', '/api/subscription/cancel', { confirm: true, reason: 'precio' }, cx.token);
   assert.strictEqual(cancelled.status, 200);
   assert.strictEqual(cancelled.body.subscription.nextChargeAt, null);
   const paysBefore = db.getPayments(cx.userId).length;
@@ -855,6 +895,7 @@ async function runPrompt3Tests({ adminToken, stylistToken }) {
   const invoiceMail = (await outboxFor(adminToken, a.email, 'INVOICE'))[0];
   assert.ok(invoiceMail.body.includes(invoice.number) && /SIMULADO/.test(invoiceMail.body) && invoiceMail.body.includes('IVA 19 %'));
   const noFiscal = await newClientWithoutPlan();
+  await markEmailVerified(noFiscal.token);
   const missing = await request('POST', '/api/subscription/subscribe', { plan: 'esencial', paymentToken: await tokenizeCard(CARD_OK, noFiscal.token) }, noFiscal.token);
   assert.strictEqual(missing.status, 400, 'Sin datos fiscales no cobra');
   assert.strictEqual((await request('PUT', '/api/profile/fiscal', { ...FISCAL, docNumber: '12' }, noFiscal.token)).status, 400);
@@ -909,7 +950,7 @@ async function runPrompt4Tests({ adminToken, stylistToken }) {
   console.log('\n--- SPRINT 2 · PROMPT 4 ---');
   const { calculateFit } = require('../backend/engine');
   const logistics = require('../backend/logistics');
-  const shipping = require('../backend/shipping');
+  const shipping = require('../backend/adapters/logistics');
   const today = shipping.dateKey(new Date());
 
   // 54. HU-09: despacho de caja aprobada y pagada: guía, stock y aviso

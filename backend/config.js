@@ -1,8 +1,9 @@
 // Configuración central de reglas de negocio (Sprint 2).
 // Las constantes compartidas con el frontend se exponen en GET /api/config.
+const env = require('./config/env');
 
 const POLICY = {
-  version: 'v1.0',
+  version: env.POLICY_VERSION,
   pendingLegalReview: true,
   title: 'Política de Tratamiento de Datos Personales',
   text: [
@@ -31,6 +32,19 @@ const PLANS = {
 };
 Object.values(PLANS).forEach(plan => { plan.targetCostCOP = targetCost(plan.priceCOP); });
 
+// SCRUM-58 (stream D1): share of the plan price used as target garment cost (assumption).
+const PLAN_TARGET_COST_RATE = Number(process.env.PLAN_TARGET_COST_RATE) > 0 ? Number(process.env.PLAN_TARGET_COST_RATE) : 0.40;
+
+// SCRUM-59 (stream D1): the webhook secret is required for a real gateway. Only the simulated
+// provider falls back to a development secret, so a missing variable never signs real events.
+function resolveWebhookSecret({ provider, secret }) {
+  if (secret) return secret;
+  if (provider !== 'simulated') {
+    throw new Error(`Falta PAYMENT_WEBHOOK_SECRET: es obligatorio con PAYMENT_PROVIDER=${provider}. Cópialo del panel de la pasarela (ver docs/integrations.md).`);
+  }
+  return 'whsec_simulado_desarrollo';
+}
+
 // HU-14: plazo único de cambio por talla, en días hábiles desde la entrega (lo lee también el frontend).
 const RETURN_WINDOW_BUSINESS_DAYS = Number(process.env.RETURN_WINDOW_BUSINESS_DAYS) || 5;
 
@@ -52,9 +66,8 @@ module.exports = {
   MIN_AGE: 18,
   PASSWORD_RESET_TTL_MS: 60 * 60 * 1000,
   APP_BASE_URL: process.env.APP_BASE_URL || 'http://localhost:3000',
-  // HU-10: días desde la entrega para recordar la calificación, y frecuencia del job.
+  // HU-10: días desde la entrega para recordar la calificación.
   REVIEW_REMINDER_DAYS: Number(process.env.REVIEW_REMINDER_DAYS) || 3,
-  REVIEW_REMINDER_INTERVAL_MS: 60 * 60 * 1000,
   // HU-13: motivos de la encuesta de salida.
   CANCELLATION_REASONS: {
     precio: 'Precio',
@@ -65,8 +78,11 @@ module.exports = {
   },
   // HU-08: reintentos del cobro recurrente, en días desde el primer fallo ("1,3,5").
   PAYMENT_RETRY_DAYS: (process.env.PAYMENT_RETRY_DAYS || '1,3,5').split(',').map(Number).filter(n => n > 0),
-  PAYMENT_WEBHOOK_SECRET: process.env.PAYMENT_WEBHOOK_SECRET || 'whsec_simulado_desarrollo',
-  BILLING_INTERVAL_MS: 60 * 60 * 1000,
+  PAYMENT_WEBHOOK_SECRET: resolveWebhookSecret({ provider: env.PROVIDERS.payment, secret: env.PAYMENT_WEBHOOK_SECRET }),
+  // F7: los jobs se revisan cada hora (backend/jobs/index.js). El lote mensual de cajas corre
+  // solo el día BOX_BATCH_DAY de cada mes (supuesto: día 1, pendiente de confirmar con el equipo).
+  JOBS_INTERVAL_MS: 60 * 60 * 1000,
+  BOX_BATCH_DAY: Number(process.env.BOX_BATCH_DAY) || 1,
   // HU-12: día del mes desde el que un cambio de plan ya no alcanza la próxima caja.
   SUBSCRIPTION_CUTOFF_DAY: Number(process.env.SUBSCRIPTION_CUTOFF_DAY) || 25,
   PAUSE_MONTHS: 1,
@@ -74,15 +90,18 @@ module.exports = {
   IVA_RATE: 0.19,
   INVOICE_PREFIX: 'SETT',
   INVOICE_RETRY_MINUTES: [5, 30, 120],
-  TEAM_ALERT_EMAIL: 'operaciones@theclothesbox.co',
+  // SCRUM-98: ops address for invoicing alerts (OPS_ALERT_EMAIL overrides the default).
+  TEAM_ALERT_EMAIL: process.env.OPS_ALERT_EMAIL || 'operaciones@theclothesbox.co',
   ISSUER: { name: 'The Clothes Box S.A.S. (SIMULADO)', nit: '900000000-0', city: 'Cali' },
   FISCAL_DOC_TYPES: { CC: 'Cédula de ciudadanía', CE: 'Cédula de extranjería', NIT: 'NIT', PA: 'Pasaporte' },
   RETURN_WINDOW_BUSINESS_DAYS,
   // HU-11: versión de las reglas del motor y límites del aprendizaje por feedback.
   RULES_VERSION: 'reglas-v2',
   LEARNING: { floor: 0.3, cap: 2, lowStyleScore: 2, lowRatingFactor: 0.6, removedFactor: 0.9, rejectedFactor: 0.95, addedFactor: 1.1, addedStyleBonus: 0.25 },
-  // HU-17: umbral de churn mensual por defecto (%), editable desde el panel.
+  // HU-17: umbrales operativos por defecto para alertas en el panel admin.
   CHURN_THRESHOLD_DEFAULT: 9,
+  RATING_THRESHOLD_DEFAULT: 4.0,
+  RETURNS_THRESHOLD_DEFAULT: 10,
   // HU-16: plazos de la Ley 1581 para responder (días hábiles): consultas 10, reclamos 15.
   DATA_REQUEST_DEADLINES: { EXPORT: 10, RECTIFICATION: 15, DELETION: 15 },
   RETURN_CONDITIONS: [
@@ -90,5 +109,31 @@ module.exports = {
     'Solo aplica a problemas de talla o ajuste (muy pequeña, muy grande o de proporciones).',
     'La prenda debe estar sin uso, sin lavar y con sus etiquetas.',
     'La recogida y el envío de la nueva talla no tienen costo en Cali.'
-  ]
+  ],
+  RETURN_POLICY: {
+    version: '1.0.0',
+    status: 'pendiente de revisión legal',
+    windowBusinessDays: RETURN_WINDOW_BUSINESS_DAYS,
+    allowedReasons: ['TOO_SMALL', 'TOO_LARGE', 'FIT_ISSUE'],
+    conditions: [
+      `El cambio se pide dentro de ${RETURN_WINDOW_BUSINESS_DAYS} días hábiles desde la entrega de la caja.`,
+      'Solo aplica a problemas de talla o ajuste (muy pequeña, muy grande o de proporciones).',
+      'La prenda debe estar sin uso, sin lavar y con sus etiquetas.',
+      'La recogida y el envío de la nueva talla no tienen costo en Cali.'
+    ]
+  },
+
+  // ---- Stream D1 (HU-08/12/13) ----
+  // SCRUM-58: plan catalog for billing. targetCost is the target garment cost per box, by default
+  // 40 % of the price (ASSUMPTION to confirm with the team; PLAN_TARGET_COST_RATE overrides it).
+  // Note: the curation engine still caps boxes with PLANS[plan].targetCostCOP (Sprint 2 formula).
+  PLAN_TARGET_COST_RATE,
+  resolveWebhookSecret,
+  PLAN_CONFIG: Object.fromEntries(Object.entries(PLANS).map(([key, plan]) => [key, {
+    name: plan.name,
+    priceCOP: plan.priceCOP,
+    items: plan.items,
+    billingCycleMonths: 1,
+    targetCost: Math.round(plan.priceCOP * PLAN_TARGET_COST_RATE)
+  }]))
 };

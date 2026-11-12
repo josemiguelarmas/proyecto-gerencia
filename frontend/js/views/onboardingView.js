@@ -295,18 +295,36 @@ TCB.views.onboarding = (() => {
     const m = draft.measures;
     return `
       <div class="stack" style="--stack:24px">
+        <div class="measuring-guide" style="background:var(--paper-2);border:1px solid var(--rule);padding:16px;border-radius:var(--r-1);display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+          <svg width="60" height="90" viewBox="0 0 60 90" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0" aria-label="Guía de medidas">
+            <circle cx="30" cy="12" r="8" stroke="currentColor" stroke-width="2"/>
+            <path d="M30 20v35M18 30h24M15 55h30M22 55l-6 30M38 55l6 30" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <line x1="5" y1="28" x2="55" y2="28" stroke="var(--accent)" stroke-dasharray="2 2" stroke-width="1.5"/>
+            <line x1="10" y1="42" x2="50" y2="42" stroke="var(--accent)" stroke-dasharray="2 2" stroke-width="1.5"/>
+            <line x1="8" y1="55" x2="52" y2="55" stroke="var(--accent)" stroke-dasharray="2 2" stroke-width="1.5"/>
+          </svg>
+          <div style="flex:1;min-width:200px">
+            <strong style="font-size:var(--fs-sm)">Guía para tomar tus medidas</strong>
+            <ol class="small muted" style="margin:4px 0 0 16px;padding:0">
+              <li>Párate descalzo contra la pared para tu estatura exacta.</li>
+              <li>Mide pecho en la parte más ancha y cintura a la altura del ombligo.</li>
+              <li>Usa cinta métrica flexible sin apretar.</li>
+            </ol>
+          </div>
+        </div>
+
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
           <div class="field">
             <label for="m-height">Estatura</label>
             <div class="input-unit">
-              <input class="input num" id="m-height" name="height" type="number" min="140" max="215" value="${m.height}" required>
+              <input class="input num" id="m-height" name="height" type="number" min="140" max="220" value="${m.height}" required>
               <span>cm</span>
             </div>
           </div>
           <div class="field">
             <label for="m-weight">Peso corporal aproximado</label>
             <div class="input-unit">
-              <input class="input num" id="m-weight" name="weight" type="number" min="40" max="160" value="${m.weight}" required>
+              <input class="input num" id="m-weight" name="weight" type="number" min="38" max="180" value="${m.weight}" required>
               <span>kg</span>
             </div>
           </div>

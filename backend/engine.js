@@ -1,3 +1,10 @@
+// Recommendation and sizing engine (HU-05, HU-06, HU-11, SCRUM-44..48, SCRUM-76).
+// Selects clothes matching size, fit, style preferences and target cost, scoring outfits as a whole.
+const fs = require('fs');
+const path = require('path');
+const config = require('./config');
+const { stockInSize } = require('./catalog');
+
 const SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
 
 const BRAND_RUNS = {
@@ -12,6 +19,48 @@ const BRAND_RUNS = {
 const BUILD_FACTOR = { delgada: -1, media: 0, robusta: 1 };
 const EASE_TOP = { ajustado: 4, regular: 8, holgado: 14 };
 const EASE_BOTTOM = { ajustado: 2, regular: 4, holgado: 8 };
+
+const STYLE_RULES_FILE = path.join(__dirname, 'data', 'seed', 'style-rules.json');
+const OUTFIT_RULES_FILE = path.join(__dirname, 'data', 'seed', 'outfit-rules.json');
+
+function loadJsonSafe(filePath, fallback = {}) {
+  try {
+    if (fs.existsSync(filePath)) {
+      return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    }
+  } catch (err) {
+    // Graceful fallback if file unreadable
+  }
+  return fallback;
+}
+
+let cachedStyleRules = null;
+let cachedOutfitRules = null;
+
+function getStyleRules() {
+  if (!cachedStyleRules) {
+    cachedStyleRules = loadJsonSafe(STYLE_RULES_FILE, {
+      status: 'pendiente de validación del estilista',
+      version: '1.0.0',
+      styles: {},
+      occasions: {},
+      cuts: {}
+    });
+  }
+  return cachedStyleRules;
+}
+
+function getOutfitRules() {
+  if (!cachedOutfitRules) {
+    cachedOutfitRules = loadJsonSafe(OUTFIT_RULES_FILE, {
+      status: 'pendiente de validación del estilista',
+      version: '1.0.0',
+      plans: {},
+      compatibilityMatrix: {}
+    });
+  }
+  return cachedOutfitRules;
+}
 
 function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
@@ -110,29 +159,66 @@ function learnedFactor(profile, kind, value) {
 function scoreProduct(profile, p) {
   let score = 0;
   const matchedStyles = [];
+  let styleScore = 0;
+  let feedbackSum = 0;
+  let feedbackCount = 0;
+
   (profile.styles || []).forEach((st, idx) => {
-    if (p.styles.includes(st)) {
-      score += (3 - idx) * 3 * learnedFactor(profile, 'style', st);
+    if (p.styles && p.styles.includes(st)) {
+      const factor = learnedFactor(profile, 'style', st);
+      const points = (3 - idx) * 3 * factor;
+      styleScore += points;
+      feedbackSum += factor;
+      feedbackCount++;
       matchedStyles.push(st);
     }
   });
+  score += styleScore;
+
   const weights = profile.styleWeights || {};
-  const weightBonus = p.styles.reduce((acc, st) => acc + (Number(weights[st]) || 0), 0) * 2;
+  const weightBonus = (p.styles || []).reduce((acc, st) => acc + (Number(weights[st]) || 0), 0) * 2;
   score += weightBonus;
-  const matchedOccasions = (profile.occasions || []).filter(o => p.occasions.includes(o));
-  score += matchedOccasions.reduce((acc, o) => acc + 2.5 * learnedFactor(profile, 'occasion', o), 0);
+
+  const matchedOccasions = (profile.occasions || []).filter(o => p.occasions && p.occasions.includes(o));
+  const occasionScore = matchedOccasions.reduce((acc, o) => {
+    const factor = learnedFactor(profile, 'occasion', o);
+    feedbackSum += factor;
+    feedbackCount++;
+    return acc + 2.5 * factor;
+  }, 0);
+  score += occasionScore;
+
   const fitMatch = p.fit === profile.fit;
-  if (fitMatch) score += 1.5 * learnedFactor(profile, 'cut', p.fit);
+  let fitScore = 0;
+  if (fitMatch) {
+    const factor = learnedFactor(profile, 'cut', p.fit);
+    fitScore = 1.5 * factor;
+    feedbackSum += factor;
+    feedbackCount++;
+    score += fitScore;
+  }
+
+  const feedbackFactor = feedbackCount > 0 ? Math.round((feedbackSum / feedbackCount) * 100) / 100 : 1;
+
   return {
     score: Math.round(score * 10) / 10,
-    reasons: { styles: matchedStyles, occasions: matchedOccasions, fitMatch, styleWeightBonus: Math.round(weightBonus * 10) / 10 }
+    reasons: {
+      styles: matchedStyles,
+      occasions: matchedOccasions,
+      fitMatch,
+      styleWeightBonus: Math.round(weightBonus * 10) / 10,
+      styleScore: Math.round(styleScore * 10) / 10,
+      occasionScore: Math.round(occasionScore * 10) / 10,
+      fitScore: Math.round(fitScore * 10) / 10,
+      feedbackFactor
+    }
   };
 }
 
 function explain(reasons, size, cut) {
   const parts = [];
-  if (reasons.styles.length) parts.push(`Coincide con tu estilo ${reasons.styles.map(s => STYLE_NAMES[s] || s).join(' y ')}`);
-  if (reasons.occasions.length) parts.push(`sirve para ${reasons.occasions.map(o => OCCASION_NAMES[o] || o).join(' y ')}`);
+  if (reasons.styles && reasons.styles.length) parts.push(`Coincide con tu estilo ${reasons.styles.map(s => STYLE_NAMES[s] || s).join(' y ')}`);
+  if (reasons.occasions && reasons.occasions.length) parts.push(`sirve para ${reasons.occasions.map(o => OCCASION_NAMES[o] || o).join(' y ')}`);
   if (reasons.fitMatch) parts.push(`corte ${cut} como prefieres`);
   if (reasons.styleWeightBonus > 0) parts.push('afín a lo que elegiste en el juego de estilos');
   parts.push(`talla ${size} disponible`);
@@ -144,13 +230,67 @@ function costOf(p) {
   return Number.isFinite(p.wholesalePriceCOP) ? p.wholesalePriceCOP : Math.round(p.priceCOP * 0.3);
 }
 
+// SCRUM-46: evalúa la compatibilidad global entre prendas de la caja
+function calculateOutfitCompatibility(items) {
+  const rules = getOutfitRules();
+  const matrix = rules.compatibilityMatrix || {};
+  let totalScore = 0;
+  let pairs = 0;
+
+  for (let i = 0; i < items.length; i++) {
+    for (let j = i + 1; j < items.length; j++) {
+      const p1 = items[i];
+      const p2 = items[j];
+      const s1 = (p1.styles && p1.styles[0]) || 'urbano';
+      const s2 = (p2.styles && p2.styles[0]) || 'urbano';
+      const score = (matrix[s1] && matrix[s1][s2]) || 0.7;
+      totalScore += score;
+      pairs++;
+    }
+  }
+
+  return pairs > 0 ? Math.round((totalScore / pairs) * 100) : 85;
+}
+
+// SCRUM-46: genera las combinaciones de outfits a partir de las prendas elegidas
+function buildOutfitsForPlan(planKey, items) {
+  const rules = getOutfitRules();
+  const planRules = (rules.plans && rules.plans[planKey]) || (rules.plans && rules.plans.esencial);
+  const outfitTemplates = (planRules && planRules.outfits) || [];
+
+  return outfitTemplates.map(tpl => {
+    const includedItems = (tpl.slotIndices || [])
+      .map(idx => items[idx])
+      .filter(Boolean);
+
+    const title = includedItems.map(it => it.name).join(' + ');
+
+    return {
+      id: tpl.id,
+      name: tpl.name,
+      title: title || 'Outfit coordinado',
+      itemIds: includedItems.map(it => it.id),
+      itemNames: includedItems.map(it => it.name),
+      description: tpl.description || 'Combinación de prendas afines para tu estilo.'
+    };
+  });
+}
+
+function getActiveModelVersionId() {
+  try {
+    const modelVersions = require('./modelVersions');
+    return modelVersions.getActiveVersion().id;
+  } catch (err) {
+    return config.RULES_VERSION || 'reglas-v2';
+  }
+}
+
 // HU-05 + HU-06: arma la caja con prendas en stock en la talla del usuario y respeta el costo objetivo.
 // Si la mejor combinación supera el tope, reemplaza la prenda más cara por la mejor alternativa más barata
 // de la misma categoría, hasta quedar dentro del tope o agotar alternativas.
 function curateBox(profile, catalog, receivedItemIds = [], { plans = null, excludeIds = [] } = {}) {
-  const config = require('./config');
-  const { stockInSize } = require('./catalog');
   const plan = (plans || config.PLANS)[profile.plan] || (plans || config.PLANS).esencial;
+  const modelVersion = getActiveModelVersionId();
 
   function matchesLine(p) {
     if (profile.line === 'm') return p.line !== 'f';
@@ -203,22 +343,59 @@ function curateBox(profile, catalog, receivedItemIds = [], { plans = null, exclu
   }
 
   const totalCostCOP = total();
-  return {
-    itemIds: chosen.map(c => c.p.id),
-    recommendations: chosen.map(c => ({
+  const rawItems = chosen.map(c => c.p);
+  const outfitScore = calculateOutfitCompatibility(rawItems);
+  const outfits = buildOutfitsForPlan(profile.plan || 'esencial', rawItems);
+
+  const recommendations = chosen.map(c => {
+    const isRepeated = !c.isFresh;
+    let baseExp = explain(c.reasons, c.size, c.p.fit);
+    if (c.replacedForCost) baseExp += ' · elegida para respetar el costo objetivo del plan';
+    if (isRepeated) baseExp += ' · prenda repetida por catálogo agotado';
+
+    return {
       productId: c.p.id,
       size: c.size,
       score: c.score,
       costCOP: c.cost,
       reasons: c.reasons,
+      matchedAttributes: {
+        styles: c.reasons.styles,
+        occasions: c.reasons.occasions,
+        fit: c.p.fit
+      },
+      scoreComponents: {
+        styleScore: c.reasons.styleScore || 0,
+        occasionScore: c.reasons.occasionScore || 0,
+        fitScore: c.reasons.fitScore || 0,
+        styleWeightBonus: c.reasons.styleWeightBonus || 0,
+        feedbackFactor: c.reasons.feedbackFactor || 1
+      },
+      filtersApplied: [
+        'line_match',
+        'size_available',
+        'stock_in_size',
+        'target_cost',
+        'freshness_checked'
+      ],
+      modelVersion,
+      repeated: isRepeated,
       replacedForCost: c.replacedForCost,
       replacedProductId: c.replacedProductId || null,
-      explanation: explain(c.reasons, c.size, c.p.fit) + (c.replacedForCost ? ' · elegida para respetar el costo objetivo del plan' : '')
-    })),
+      explanation: baseExp
+    };
+  });
+
+  return {
+    itemIds: chosen.map(c => c.p.id),
+    recommendations,
     totalCostCOP,
     targetCostCOP: plan.targetCostCOP,
     withinCap: totalCostCOP <= plan.targetCostCOP,
-    missingSlots
+    missingSlots,
+    outfitScore,
+    outfits,
+    modelVersion
   };
 }
 
@@ -230,7 +407,32 @@ function curateBoxItems(profile, catalog, receivedItemIds = []) {
 function explainProduct(profile, product) {
   const size = calculateFit(profile, product).size;
   const { score, reasons } = scoreProduct(profile, product);
-  return { productId: product.id, size, score, costCOP: costOf(product), reasons, replacedForCost: false, replacedProductId: null, explanation: explain(reasons, size, product.fit) };
+  const modelVersion = getActiveModelVersionId();
+
+  return {
+    productId: product.id,
+    size,
+    score,
+    costCOP: costOf(product),
+    reasons,
+    matchedAttributes: {
+      styles: reasons.styles,
+      occasions: reasons.occasions,
+      fit: product.fit
+    },
+    scoreComponents: {
+      styleScore: reasons.styleScore || 0,
+      occasionScore: reasons.occasionScore || 0,
+      fitScore: reasons.fitScore || 0,
+      styleWeightBonus: reasons.styleWeightBonus || 0,
+      feedbackFactor: reasons.feedbackFactor || 1
+    },
+    filtersApplied: ['line_match', 'size_available', 'stock_in_size'],
+    modelVersion,
+    replacedForCost: false,
+    replacedProductId: null,
+    explanation: explain(reasons, size, product.fit)
+  };
 }
 
 module.exports = {
@@ -239,5 +441,8 @@ module.exports = {
   curateBox,
   curateBoxItems,
   explainProduct,
-  scoreProduct
+  scoreProduct,
+  calculateOutfitCompatibility,
+  getStyleRules,
+  getOutfitRules
 };

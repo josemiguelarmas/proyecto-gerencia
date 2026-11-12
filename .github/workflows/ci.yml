@@ -1,0 +1,30 @@
+# Runs the full test suite (node --test tests/) on Node 20 for Linux and Windows.
+# No secrets are needed: NODE_ENV=test skips the JWT_SECRET / DATA_ENCRYPTION_KEY check,
+# and every test file works on its own temporary data folder.
+name: CI
+
+on:
+  push:
+    branches: [main, dev, 'integration/**', 'feat/**']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: npm test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Run tests
+        run: npm test

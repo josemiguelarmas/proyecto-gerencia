@@ -13,7 +13,8 @@ TCB.views.subscribe = (() => {
     return appConfig;
   }
 
-  // Campos de tarjeta. Nunca se guardan: se tokenizan y el formulario se limpia.
+  // Campos de tarjeta. Nunca salen del navegador: la pasarela (SDK simulado) los tokeniza aquí
+  // y al backend solo llega el token. El formulario se limpia después de tokenizar.
   function cardFieldsHtml(testCards = []) {
     return `
       <div class="banner banner--info" style="font-size:var(--fs-sm)">
@@ -46,15 +47,17 @@ TCB.views.subscribe = (() => {
 
   async function tokenizeFrom(form) {
     const [expMonth, expYear] = form.elements.exp.value.split('/').map(v => v.trim());
-    const res = await TCB.api.payments.tokenize({
-      holder: form.elements.holder.value.trim(),
-      number: form.elements.number.value,
-      expMonth,
-      expYear,
-      cvc: form.elements.cvc.value.trim()
-    });
-    ['number', 'exp', 'cvc'].forEach(n => { form.elements[n].value = ''; });
-    return res;
+    try {
+      return TCB.simulatedGateway.tokenize({
+        holder: form.elements.holder.value.trim(),
+        number: form.elements.number.value,
+        expMonth,
+        expYear,
+        cvc: form.elements.cvc.value.trim()
+      });
+    } finally {
+      ['number', 'exp', 'cvc'].forEach(n => { form.elements[n].value = ''; });
+    }
   }
 
   function fiscalFieldsHtml(fiscal = {}, docTypes = {}) {
@@ -126,6 +129,25 @@ TCB.views.subscribe = (() => {
             <p>Ya tienes el plan <strong>${sub.planName}</strong>. Gestiónalo desde <a href="#/perfil">Mi Perfil › Mi suscripción</a>.</p>
           </div>
         `;
+        return;
+      }
+      // SCRUM-58: el backend exige correo verificado; se avisa antes de pedir la tarjeta.
+      if (store.user.emailVerified === false) {
+        bodyEl.innerHTML = `
+          <div class="banner banner--warn">
+            <p><strong>Verifica tu correo para suscribirte.</strong> Te enviamos un enlace a <strong>${store.user.email}</strong>.</p>
+            <button type="button" class="btn btn--sm btn--ghost" id="btn-sub-resend" style="margin-top:8px">Reenviar enlace</button>
+            <p class="small muted" id="sub-resend-msg" role="status"></p>
+          </div>
+        `;
+        bodyEl.querySelector('#btn-sub-resend').addEventListener('click', async () => {
+          const msg = bodyEl.querySelector('#sub-resend-msg');
+          try {
+            msg.textContent = (await TCB.api.auth.resendVerification()).message;
+          } catch (err) {
+            msg.textContent = err.data?.error || err.message;
+          }
+        });
         return;
       }
       selectedPlan = selectedPlan || (store.profile && store.profile.plan) || 'esencial';

@@ -4,6 +4,8 @@
 const config = require('./config');
 
 const L = config.LEARNING;
+const HIGH_STYLE_SCORE = 5;
+const HIGH_RATING_FACTOR = L.highRatingFactor || 1.25;
 
 function clamp(value) {
   return Math.min(L.cap, Math.max(L.floor, Math.round(value * 1000) / 1000));
@@ -29,10 +31,18 @@ function scaleAttributes(profile, attributes, factor) {
 const key = ([kind, value]) => `${kind}:${value}`;
 
 // Una calificación de estilo de 2 o menos baja el peso de los atributos de la prenda (con piso).
+// Una calificación de estilo de 4 o más sube el peso de los atributos de la prenda (con techo).
 function applyRating(profile, product, styleScore) {
-  if (!Number.isFinite(styleScore) || styleScore > L.lowStyleScore) return false;
-  scaleAttributes(profile, attributesOf(product), L.lowRatingFactor);
-  return true;
+  if (!Number.isFinite(styleScore)) return false;
+  if (styleScore <= L.lowStyleScore) {
+    scaleAttributes(profile, attributesOf(product), L.lowRatingFactor);
+    return true;
+  }
+  if (styleScore >= HIGH_STYLE_SCORE) {
+    scaleAttributes(profile, attributesOf(product), HIGH_RATING_FACTOR);
+    return true;
+  }
+  return false;
 }
 
 // Corrección del estilista: lo que distingue a la prenda reemplazada penaliza y lo que distingue a la
@@ -58,21 +68,45 @@ function applyCorrection(profile, { removed = [], added = null, rejected = false
 }
 
 // Procesa el feedback aún no aprendido. Es idempotente: marca cada calificación y corrección como aprendida.
+// SCRUM-75: normaliza calificaciones y correcciones en la colección feedbackEvents.
 function ingestFeedback(now = new Date()) {
   const { db } = require('./database');
   const touched = new Set();
   let ratingsProcessed = 0;
   let lowRatings = 0;
+  let highRatings = 0;
   let correctionsProcessed = 0;
+  let feedbackEventsCreated = 0;
+
+  if (!db.data.feedbackEvents) {
+    db.data.feedbackEvents = [];
+  }
 
   db.data.ratings.filter(r => !r.learnedAt).forEach(r => {
     const profile = db.getProfile(r.userId);
     const product = db.getProductById(r.productId);
     r.learnedAt = now.toISOString();
     ratingsProcessed++;
+
+    // SCRUM-75: Evento normalizado de feedback
+    db.data.feedbackEvents.push({
+      id: `fe_r_${r.id}`,
+      type: 'RATING',
+      userId: r.userId,
+      productId: r.productId,
+      boxId: r.boxId,
+      fitScore: r.fitScore,
+      styleScore: r.styleScore,
+      createdAt: r.createdAt || now.toISOString(),
+      processedAt: now.toISOString()
+    });
+    feedbackEventsCreated++;
+
     if (!profile || !product) return;
-    if (applyRating(profile, product, Number(r.styleScore))) {
-      lowRatings++;
+    const score = Number(r.styleScore);
+    if (applyRating(profile, product, score)) {
+      if (score <= L.lowStyleScore) lowRatings++;
+      if (score >= HIGH_STYLE_SCORE) highRatings++;
       touched.add(r.userId);
     }
   });
@@ -81,6 +115,21 @@ function ingestFeedback(now = new Date()) {
     const profile = db.getProfile(c.subscriberId);
     c.learnedAt = now.toISOString();
     correctionsProcessed++;
+
+    // SCRUM-75: Evento normalizado de corrección
+    db.data.feedbackEvents.push({
+      id: `fe_c_${c.id || Math.random().toString(36).slice(2, 9)}`,
+      type: 'CORRECTION',
+      userId: c.subscriberId,
+      boxId: c.boxId,
+      removedProductId: c.removedProductId,
+      addedProductId: c.addedProductId,
+      reason: c.reason,
+      createdAt: c.createdAt || now.toISOString(),
+      processedAt: now.toISOString()
+    });
+    feedbackEventsCreated++;
+
     if (!profile) return;
     const ids = c.type === 'REPLACE' ? [c.removedProductId] : c.removedProductIds || [];
     applyCorrection(profile, {
@@ -104,7 +153,9 @@ function ingestFeedback(now = new Date()) {
     rulesVersion: config.RULES_VERSION,
     ratingsProcessed,
     lowRatings,
+    highRatings,
     correctionsProcessed,
+    feedbackEventsCreated,
     profilesUpdated: touched.size,
     ranAt: now.toISOString()
   };
