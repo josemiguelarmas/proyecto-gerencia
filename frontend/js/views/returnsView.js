@@ -177,6 +177,7 @@ TCB.views.returns = (() => {
                           ${ret.exchangeTrackingNumber ? `<div>Envío ${ret.resolution === 'EQUIVALENT' ? `de ${ret.replacementName}` : 'nueva talla'}: <span class="mono">${ret.exchangeTrackingNumber}</span></div>` : ''}
                           ${ret.resolution === 'RETURN_ONLY' ? '<div class="muted">Solo devolución</div>' : ''}
                           ${ret.carrier ? `<div class="muted">${ret.carrier}</div>` : ''}
+                          ${ret.returnTrackingNumber ? `<div style="margin-top:4px"><a href="/api/returns/${ret.id}/guide?format=html" target="_blank" class="small" style="text-decoration:underline;color:var(--brand-box);font-weight:600">Imprimir guía</a></div>` : ''}
                         </td>
                         <td>${statusBadge}</td>
                       </tr>
