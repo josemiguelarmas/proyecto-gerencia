@@ -98,8 +98,10 @@ module.exports = {
   // HU-11: versión de las reglas del motor y límites del aprendizaje por feedback.
   RULES_VERSION: 'reglas-v2',
   LEARNING: { floor: 0.3, cap: 2, lowStyleScore: 2, lowRatingFactor: 0.6, removedFactor: 0.9, rejectedFactor: 0.95, addedFactor: 1.1, addedStyleBonus: 0.25 },
-  // HU-17: umbral de churn mensual por defecto (%), editable desde el panel.
+  // HU-17: umbrales operativos por defecto para alertas en el panel admin.
   CHURN_THRESHOLD_DEFAULT: 9,
+  RATING_THRESHOLD_DEFAULT: 4.0,
+  RETURNS_THRESHOLD_DEFAULT: 10,
   // HU-16: plazos de la Ley 1581 para responder (días hábiles): consultas 10, reclamos 15.
   DATA_REQUEST_DEADLINES: { EXPORT: 10, RECTIFICATION: 15, DELETION: 15 },
   RETURN_CONDITIONS: [
