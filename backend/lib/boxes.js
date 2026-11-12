@@ -23,6 +23,9 @@ function createCuratedBox(userId, profile, { cycle, address, receivedIds = [], e
     totalCostCOP: curated.totalCostCOP,
     targetCostCOP: curated.targetCostCOP,
     withinCap: curated.withinCap,
+    outfits: curated.outfits,
+    outfitScore: curated.outfitScore,
+    modelVersion: curated.modelVersion,
     // HU-11: con qué reglas y qué revisión del perfil aprendido se armó la caja
     rulesVersion: config.RULES_VERSION,
     profileLearningRevision: profile.learningRevision || 0
