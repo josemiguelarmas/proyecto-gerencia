@@ -1,0 +1,98 @@
+{
+  "status": "pendiente de validación del estilista",
+  "version": "1.0",
+  "styles": [
+    { "id": "urbano", "name": "Urbano relajado", "note": "Cortes amplios, buzos, capas." },
+    { "id": "minimal", "name": "Minimal", "note": "Pocas piezas, líneas limpias." },
+    { "id": "retro", "name": "Retro", "note": "Colores lavados, años 90." },
+    { "id": "clasico", "name": "Clásico con giro", "note": "Camisas, pantalón de tela y un detalle que rompe." },
+    { "id": "deportivo", "name": "Deportivo", "note": "Comodidad que sale a la calle." },
+    { "id": "artesanal", "name": "Hecho aquí", "note": "Lino, texturas, marcas locales." }
+  ],
+  "questions": [
+    {
+      "id": "q1",
+      "text": "Un martes cualquiera de clase, ¿qué te pones?",
+      "options": [
+        { "t": "Buzo, jogger y tenis", "s": { "urbano": 2, "deportivo": 2 } },
+        { "t": "Camiseta lisa y un pantalón que combine con todo", "s": { "minimal": 3 } },
+        { "t": "Algo que encontré en una tienda de segunda", "s": { "retro": 3 } },
+        { "t": "Camisa, aunque sea por fuera", "s": { "clasico": 3 } }
+      ]
+    },
+    {
+      "id": "q2",
+      "text": "¿Qué colores dominan tu clóset?",
+      "key": "palette",
+      "options": [
+        { "t": "Negro, blanco y gris", "s": { "minimal": 2, "urbano": 1 } },
+        { "t": "Tierra: beige, café, verde oliva", "s": { "artesanal": 2, "urbano": 1 } },
+        { "t": "Color, sin miedo", "s": { "retro": 2, "deportivo": 1 } },
+        { "t": "Azul oscuro y tonos sobrios", "s": { "clasico": 2 } }
+      ]
+    },
+    {
+      "id": "q3",
+      "text": "¿Cómo te gusta que te quede la ropa?",
+      "key": "fit",
+      "options": [
+        { "t": "Holgada", "s": { "urbano": 2 }, "fit": "holgado" },
+        { "t": "A la medida, ni suelta ni pegada", "s": { "clasico": 1, "minimal": 1 }, "fit": "regular" },
+        { "t": "Ajustada", "s": { "deportivo": 1 }, "fit": "ajustado" }
+      ]
+    },
+    {
+      "id": "q4",
+      "text": "Estampados y gráficos:",
+      "key": "prints",
+      "options": [
+        { "t": "Mientras más, mejor", "s": { "retro": 2, "urbano": 1 } },
+        { "t": "Uno pequeño, como detalle", "s": { "clasico": 1, "artesanal": 1 } },
+        { "t": "Nada, prefiero liso", "s": { "minimal": 2 } }
+      ]
+    },
+    {
+      "id": "q5",
+      "text": "¿Qué te dicen más seguido de tu ropa?",
+      "options": [
+        { "t": "“Siempre te ves cómodo”", "s": { "deportivo": 2, "urbano": 1 } },
+        { "t": "“¿Dónde compraste eso?”", "s": { "retro": 2, "artesanal": 1 } },
+        { "t": "“Te ves arreglado”", "s": { "clasico": 2 } },
+        { "t": "Nada. Y me gusta así", "s": { "minimal": 2 } }
+      ]
+    },
+    {
+      "id": "q6",
+      "text": "Si pudieras gastar en una sola cosa, sería en…",
+      "options": [
+        { "t": "Una buena tela que dure", "s": { "artesanal": 2, "minimal": 1 } },
+        { "t": "Una prenda que nadie más tenga", "s": { "retro": 2 } },
+        { "t": "Lo que esté sonando ahora", "s": { "urbano": 2 } }
+      ]
+    },
+    {
+      "id": "q7",
+      "text": "¿Qué cortes quieres ver en tu caja?",
+      "key": "line",
+      "options": [
+        { "t": "Línea masculina", "line": "m" },
+        { "t": "Línea femenina", "line": "f" },
+        { "t": "Las dos", "line": "u" }
+      ]
+    },
+    {
+      "id": "q8",
+      "text": "¿Cuánto quieres que arriesguemos?",
+      "key": "risk",
+      "options": [
+        { "t": "Poco: cosas que sé que me voy a poner", "risk": 0 },
+        { "t": "Un paso afuera de lo de siempre", "risk": 1 },
+        { "t": "Sorpréndanme", "risk": 2 }
+      ]
+    }
+  ],
+  "hiddenStylesGame": {
+    "rounds": 6,
+    "description": "Elige entre pares de prendas visuales para calibrar tus estilos ocultos."
+  }
+}
