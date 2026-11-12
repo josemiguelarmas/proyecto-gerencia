@@ -24,9 +24,9 @@ TCB.views.profile = (() => {
       `;
     }
 
-    const height = profile.heightCm || 178;
-    const weight = profile.weightKg || 74;
-    const bmi = (weight / Math.pow(height / 100, 2)).toFixed(1);
+    const height = profile.measures?.height || profile.heightCm || '';
+    const weight = profile.measures?.weight || profile.weightKg || '';
+    const bmi = (height && weight) ? (Number(weight) / Math.pow(Number(height) / 100, 2)).toFixed(1) : '--';
 
     return `
       <div class="screen wrap">
@@ -62,7 +62,7 @@ TCB.views.profile = (() => {
               </div>
               <div class="field" style="grid-column:1 / -1">
                 <label for="p-address">Dirección de entrega en Cali</label>
-                <input class="input" id="p-address" name="address" type="text" value="${profile.address || 'Av. San Joaquín # 14-80, Ciudad Jardín, Cali'}" required>
+                <input class="input" id="p-address" name="address" type="text" value="${profile.address || ''}" placeholder="Ej: Av. San Joaquín # 14-80, Ciudad Jardín, Cali" required>
                 <p class="small muted" style="margin-top:4px">Aquí llegarán mensualmente tus cajas y se recogerán los cambios de talla.</p>
               </div>
             </div>
@@ -140,15 +140,15 @@ TCB.views.profile = (() => {
             <div class="grid" style="--cols:repeat(auto-fit, minmax(240px, 1fr));gap:16px">
               <div class="field">
                 <label for="p-ref-brand">Marca de la prenda</label>
-                <input class="input" id="p-ref-brand" name="refBrand" type="text" value="${profile.referenceGarment?.brand || 'Zara'}" placeholder="Ej: Zara, Mango, Levi's">
+                <input class="input" id="p-ref-brand" name="refBrand" type="text" value="${profile.referenceGarment?.brand || ''}" placeholder="Ej: Zara, Mango, Levi's">
               </div>
               <div class="field">
                 <label for="p-ref-size">Talla en esa marca</label>
-                <input class="input" id="p-ref-size" name="refSize" type="text" value="${profile.referenceGarment?.size || 'M'}" placeholder="Ej: M o 32">
+                <input class="input" id="p-ref-size" name="refSize" type="text" value="${profile.referenceGarment?.size || ''}" placeholder="Ej: M o 32">
               </div>
               <div class="field" style="grid-column:1 / -1">
                 <label for="p-ref-notes">¿Por qué te queda bien?</label>
-                <input class="input" id="p-ref-notes" name="refNotes" type="text" value="${profile.referenceGarment?.notes || 'Caída recta en hombros y no se encoge'}" placeholder="Ej: Buen largo de manga y no me aprieta el pecho">
+                <input class="input" id="p-ref-notes" name="refNotes" type="text" value="${profile.referenceGarment?.notes || ''}" placeholder="Ej: Buen largo de manga y no me aprieta el pecho">
               </div>
             </div>
           </section>
@@ -610,10 +610,20 @@ TCB.views.profile = (() => {
           }
         }
 
+        const height = Number(form.heightCm.value) || undefined;
+        const weight = Number(form.weightKg.value) || undefined;
         const updatedData = {
           address: form.address.value.trim(),
-          heightCm: Number(form.heightCm.value),
-          weightKg: Number(form.weightKg.value),
+          heightCm: height,
+          weightKg: weight,
+          measures: {
+            height,
+            weight,
+            build: form.bodyBuild.value.toLowerCase(),
+            usual: form.usualSizeTop.value,
+            refBrand: form.refBrand.value.trim().toLowerCase(),
+            refSize: form.refSize.value.trim()
+          },
           bodyBuild: form.bodyBuild.value,
           fitPreference: form.fitPreference.value,
           usualSizeTop: form.usualSizeTop.value,
