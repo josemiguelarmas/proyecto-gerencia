@@ -87,3 +87,8 @@ SCRUM-91 | DONE | 70dcf57 | tests/fulfillment.test.js (Colombian holiday window 
 SCRUM-92 | DONE | 70dcf57 | tests/fulfillment.test.js (GET /api/returns/:id/guide printable label)
 SCRUM-93 | DONE | 70dcf57 | tests/fulfillment.test.js (automatic inventory return movement)
 SCRUM-94 | DONE | 70dcf57 | tests/fulfillment.test.js (GET /api/admin/returns/metrics)
+SCRUM-106 | DONE | 08db284 | docs/kpi-definitions.md (+ backend/kpis.js, tests/kpis.test.js)
+SCRUM-107 | DONE | 873ca9a | backend/jobs/kpiSnapshot.js (+ tests/kpis.test.js)
+SCRUM-108 | DONE | 873ca9a | frontend/js/views/admin/kpis.js (+ tests/kpis.test.js)
+SCRUM-109 | DONE | 873ca9a | backend/routes/admin.js (settings/thresholds) (+ tests/kpis.test.js)
+SCRUM-105 | DONE | 1918d04 | tests/e2e.smoke.test.js
