@@ -52,7 +52,7 @@ function addRating(userId, boxId, productId, ratingData) {
       userId,
       boxId,
       productId,
-      score: ratingData.score || 4,
+      score: Number.isInteger(ratingData.score) ? ratingData.score : (ratingData.fitScore && ratingData.styleScore ? Math.round((ratingData.fitScore + ratingData.styleScore) / 2) : (ratingData.fitScore ?? ratingData.styleScore ?? null)),
       fitScore: ratingData.fitScore ?? null,
       styleScore: ratingData.styleScore ?? null,
       liked: ratingData.liked !== false,
