@@ -335,4 +335,122 @@ function importCatalogCsv(csvText, catalog) {
   };
 }
 
-module.exports = { normalizeProduct, stockInSize, availableUnits, isActive, skuFor, listBrands, productSizes, parseCsv, importCatalogCsv };
+// ---------------------------------------------------------------
+// Product form validation (SCRUM-40, SCRUM-41)
+// ---------------------------------------------------------------
+
+const TEXT_LIMIT = 500;
+const isPositiveInt = n => Number.isInteger(n) && n > 0;
+const isText = (value, max) => typeof value === 'string' && value.trim().length > 0 && value.trim().length <= max;
+
+// Style and occasion tags must come from the controlled vocabulary (domain/vocab.js).
+function validateTags(input, errors) {
+  const { isStyle, isOccasion, STYLES, OCCASIONS } = require('./domain/vocab');
+  const valid = (list, check) => Array.isArray(list) && list.length > 0 && list.every(check) && new Set(list).size === list.length;
+  if (input.styles !== undefined && !valid(input.styles, isStyle)) {
+    errors.push({ field: 'styles', message: `Elige al menos un estilo, sin repetir, entre: ${STYLES.join(', ')}.` });
+  }
+  if (input.occasions !== undefined && !valid(input.occasions, isOccasion)) {
+    errors.push({ field: 'occasions', message: `Elige al menos una ocasión, sin repetir, entre: ${OCCASIONS.join(', ')}.` });
+  }
+}
+
+// Validates the variants of the product form. A known sku updates that variant (stock and
+// prices); anything else is a new variant that needs size, color and a free sku.
+function validateVariants(list, catalog, existing, fail) {
+  const variants = [];
+  const keys = new Set((existing ? existing.variants : []).map(v => `${v.size}|${slug(v.color)}`));
+  const seenSkus = new Set();
+  list.forEach((v, i) => {
+    const field = `variants[${i}]`;
+    if (!v || typeof v !== 'object') return fail(field, 'Variante no válida.');
+    const sku = typeof v.sku === 'string' && v.sku.trim() ? v.sku.trim().toUpperCase() : null;
+    if (sku && !SKU_RE.test(sku)) return fail(`${field}.sku`, `SKU "${v.sku}" no válido: usa de 2 a 40 letras, números o guiones.`);
+    if (sku && seenSkus.has(sku)) return fail(`${field}.sku`, `El SKU ${sku} está repetido.`);
+    if (sku) seenSkus.add(sku);
+    if (!Number.isInteger(v.stock) || v.stock < 0) return fail(`${field}.stock`, 'El stock debe ser un entero mayor o igual a 0.');
+    const badPrice = ['wholesalePrice', 'retailPrice'].find(key => v[key] !== undefined && !isPositiveInt(v[key]));
+    if (badPrice) return fail(`${field}.${badPrice}`, 'El precio debe ser un entero positivo en COP.');
+    const own = existing && sku ? existing.variants.find(x => x.sku === sku) : null;
+    if (own) {
+      if (v.stock < own.reserved) return fail(`${field}.stock`, `El stock no puede ser menor que las ${own.reserved} unidades reservadas.`);
+      return variants.push({ sku, stock: v.stock, wholesalePrice: v.wholesalePrice, retailPrice: v.retailPrice });
+    }
+    if (!config.SIZES.includes(v.size)) return fail(`${field}.size`, `Talla no válida. Usa: ${config.SIZES.join(', ')}.`);
+    if (!isText(v.color, 60)) return fail(`${field}.color`, 'El color de la variante es obligatorio.');
+    const key = `${v.size}|${slug(v.color)}`;
+    if (keys.has(key)) return fail(field, `Ya existe la talla ${v.size} en color ${v.color.trim()}.`);
+    keys.add(key);
+    if (sku && catalog.some(p => (p.variants || []).some(x => x.sku === sku))) return fail(`${field}.sku`, `El SKU ${sku} ya existe en el catálogo.`);
+    variants.push({ sku, size: v.size, color: v.color.trim(), stock: v.stock, wholesalePrice: v.wholesalePrice, retailPrice: v.retailPrice, isNew: true });
+  });
+  return variants;
+}
+
+// Validates the admin product form and returns only whitelisted fields (no mass assignment).
+// With `existing` (an update) every field is optional; on create the core fields are required.
+// Variants that are not sent stay as they are (set stock 0 to stop offering one).
+function validateProductInput(input, catalog, existing = null) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return { errors: [{ field: null, message: 'Envía los datos de la prenda.' }], fields: {}, variants: [] };
+  }
+  const errors = [];
+  const fail = (field, message) => errors.push({ field, message });
+  const has = key => input[key] !== undefined;
+  const required = key => !existing || has(key);
+  const fields = {};
+
+  const text = (key, label, max) => {
+    if (!required(key)) return;
+    if (!isText(input[key], max)) return fail(key, `${label} es obligatorio (máximo ${max} caracteres).`);
+    fields[key] = input[key].trim();
+  };
+  const optionalText = (key, label, max = TEXT_LIMIT) => {
+    if (!has(key)) return;
+    if (typeof input[key] !== 'string' || input[key].length > max) return fail(key, `${label} debe ser texto de máximo ${max} caracteres.`);
+    fields[key] = input[key].trim();
+  };
+  const oneOf = (key, allowed, message, fallback) => {
+    if (has(key)) {
+      if (!allowed.includes(input[key])) return fail(key, message);
+      fields[key] = input[key];
+    } else if (!existing && fallback !== undefined) fields[key] = fallback;
+    else if (!existing) fail(key, message);
+  };
+
+  text('name', 'El nombre', 120);
+  text('brandName', 'La marca', 80);
+  optionalText('brandCity', 'La ciudad de la marca', 80);
+  optionalText('type', 'El tipo', 60);
+  optionalText('colorName', 'El color', 60);
+  optionalText('fabric', 'El tejido', 200);
+  optionalText('story', 'La historia');
+  optionalText('care', 'El cuidado');
+  oneOf('category', config.CATEGORIES, `Categoría no válida. Usa: ${config.CATEGORIES.join(', ')}.`);
+  oneOf('fit', FITS, `Corte no válido. Usa: ${FITS.join(', ')}.`, 'regular');
+  oneOf('line', LINES, 'Línea no válida. Usa: u (unisex), m o f.', 'u');
+  if (has('imageUrl')) {
+    if (typeof input.imageUrl !== 'string' || !/^https?:\/\/\S+$/.test(input.imageUrl)) fail('imageUrl', 'La imagen debe ser una URL que empiece por http:// o https://.');
+    else fields.imageUrl = input.imageUrl;
+  } else if (!existing) fail('imageUrl', 'Agrega la URL de la fotografía oficial de la prenda.');
+  ['priceCOP', 'wholesalePriceCOP'].forEach(key => {
+    if (!required(key)) return;
+    if (!isPositiveInt(input[key])) fail(key, `${key === 'priceCOP' ? 'El precio de venta' : 'El precio mayorista'} debe ser un entero positivo en COP.`);
+    else fields[key] = input[key];
+  });
+
+  if (!existing && !has('styles')) fail('styles', 'Elige al menos un estilo.');
+  if (!existing && !has('occasions')) fail('occasions', 'Elige al menos una ocasión.');
+  validateTags(input, errors);
+  if (has('styles') && !errors.some(e => e.field === 'styles')) fields.styles = [...input.styles];
+  if (has('occasions') && !errors.some(e => e.field === 'occasions')) fields.occasions = [...input.occasions];
+
+  let variants = [];
+  if (required('variants')) {
+    if (!Array.isArray(input.variants) || (!existing && input.variants.length === 0)) fail('variants', 'Agrega al menos una variante (talla, color y stock).');
+    else variants = validateVariants(input.variants, catalog, existing, fail);
+  }
+  return { errors, fields, variants };
+}
+
+module.exports = { normalizeProduct, stockInSize, availableUnits, isActive, skuFor, slug, listBrands, productSizes, parseCsv, importCatalogCsv, nextProductId, validateProductInput, validateTags, FITS };

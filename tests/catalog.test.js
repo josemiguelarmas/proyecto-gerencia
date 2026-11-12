@@ -191,3 +191,98 @@ test('SCRUM-39 CSV de Excel en español separado por punto y coma', async () => 
   assert.equal(res.body.imported, 1);
   assert.deepEqual(inventory.findVariant({ sku: 'PYC-01' }).product.styles, ['retro', 'clasico']);
 });
+
+// ---------------------------------------------------------------- SCRUM-40 CRUD with soft delete
+
+const NEW_PRODUCT = {
+  name: 'Chaqueta Prueba CRUD',
+  brandName: 'Taller Prueba',
+  brandCity: 'Cali',
+  category: 'capa',
+  fit: 'regular',
+  styles: ['minimal'],
+  occasions: ['clase'],
+  priceCOP: 189000,
+  wholesalePriceCOP: 70000,
+  imageUrl: 'https://images.unsplash.com/photo-1551028719-00167b16eac5?w=800',
+  variants: [{ size: 'M', color: 'Negro', stock: 5 }, { sku: 'CRUD-CHAQ-L', size: 'L', color: 'Negro', stock: 0 }]
+};
+
+test('SCRUM-40 Escenario: el administrador crea una prenda desde el formulario y queda en el catálogo con sus variantes', async () => {
+  const res = await app.post('/api/admin/products', NEW_PRODUCT, admin);
+  assert.equal(res.status, 201);
+  const p = res.body.product;
+  assert.match(p.id, /^prod-\d+$/);
+  assert.equal(p.brandId, 'taller-prueba');
+  assert.deepEqual(p.variants.map(v => [v.sku, v.stock, v.reserved, v.wholesalePrice, v.retailPrice]),
+    [[`${p.id.toUpperCase()}-M-NEGRO`, 5, 0, 70000, 189000], ['CRUD-CHAQ-L', 0, 0, 70000, 189000]]);
+  assert.ok(inventory.listMovements({ productId: p.id }).some(m => m.type === 'RESTOCK' && m.qty === 5));
+  assert.ok((await app.get('/api/products')).body.some(x => x.id === p.id));
+});
+
+test('SCRUM-40 validación: el POST rechaza datos incompletos o fuera del vocabulario con errores por campo y sin asignación masiva', async () => {
+  const bad = await app.post('/api/admin/products', { ...NEW_PRODUCT, name: '', category: 'falda', priceCOP: -1, variants: [{ size: 'XXXL', color: 'Rojo', stock: 1 }] }, admin);
+  assert.equal(bad.status, 400);
+  assert.deepEqual(bad.body.errors.map(e => e.field).sort(), ['category', 'name', 'priceCOP', 'variants[0].size']);
+  const noVariants = await app.post('/api/admin/products', { ...NEW_PRODUCT, variants: [] }, admin);
+  assert.ok(noVariants.body.errors.some(e => e.field === 'variants'));
+  const dupSku = await app.post('/api/admin/products', { ...NEW_PRODUCT, variants: [{ sku: 'CRUD-CHAQ-L', size: 'S', color: 'Azul', stock: 1 }] }, admin);
+  assert.ok(dupSku.body.errors.some(e => e.field === 'variants[0].sku' && /ya existe/.test(e.message)));
+  const sneaky = await app.post('/api/admin/products', { ...NEW_PRODUCT, name: 'Prenda Sin Colarse', id: 'prod-01', deletedAt: null, isAdmin: true, variants: [{ size: 'S', color: 'Gris', stock: 1, reserved: 99 }] }, admin);
+  assert.equal(sneaky.status, 201);
+  assert.notEqual(sneaky.body.product.id, 'prod-01');
+  assert.equal(sneaky.body.product.isAdmin, undefined);
+  assert.equal(sneaky.body.product.variants[0].reserved, 0);
+  assert.equal((await app.post('/api/admin/products', NEW_PRODUCT, await app.loginAs('CLIENT'))).status, 403);
+});
+
+test('SCRUM-40 Escenario: el administrador edita precio y stock de una variante y el cambio queda registrado', async () => {
+  const p = store.catalog.find(x => x.name === 'Chaqueta Prueba CRUD');
+  const res = await app.put(`/api/admin/products/${p.id}`, { priceCOP: 179000, variants: [{ sku: 'CRUD-CHAQ-L', stock: 3, retailPrice: 179000 }, { size: 'S', color: 'Negro', stock: 2 }] }, admin);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.product.priceCOP, 179000);
+  assert.equal(res.body.product.name, 'Chaqueta Prueba CRUD', 'los campos no enviados se conservan');
+  const l = res.body.product.variants.find(v => v.sku === 'CRUD-CHAQ-L');
+  assert.deepEqual([l.stock, l.retailPrice], [3, 179000]);
+  assert.equal(res.body.product.variants.length, 3);
+  assert.ok(inventory.listMovements({ sku: 'CRUD-CHAQ-L' }).some(m => m.type === 'ADJUST' && m.stockBefore === 0 && m.stockAfter === 3));
+
+  inventory.reserve({ sku: 'CRUD-CHAQ-L', qty: 2, reason: 'Caja aprobada', refId: 'box_crud' });
+  const below = await app.put(`/api/admin/products/${p.id}`, { variants: [{ sku: 'CRUD-CHAQ-L', stock: 1 }] }, admin);
+  assert.equal(below.status, 400);
+  assert.match(below.body.errors[0].message, /reservadas/);
+  assert.equal((await app.put('/api/admin/products/prod-999', { priceCOP: 1 }, admin)).status, 404);
+  assert.equal((await app.put(`/api/admin/products/${p.id}`, { styles: ['gotico'] }, admin)).status, 400);
+});
+
+test('SCRUM-40 Escenario: borrar una prenda es lógico, sale del catálogo público y del motor, y se puede restaurar', async () => {
+  const p = store.catalog.find(x => x.name === 'Chaqueta Prueba CRUD');
+  const blocked = await app.del(`/api/admin/products/${p.id}`, admin);
+  assert.equal(blocked.status, 409, 'no se borra con unidades reservadas');
+  inventory.release({ sku: 'CRUD-CHAQ-L', qty: 2, reason: 'Caja rechazada', refId: 'box_crud' });
+
+  const del = await app.del(`/api/admin/products/${p.id}`, admin);
+  assert.equal(del.status, 200);
+  assert.ok(del.body.product.deletedAt);
+  assert.ok(store.catalog.some(x => x.id === p.id), 'sigue en el archivo para el historial');
+  assert.ok(!(await app.get('/api/products')).body.some(x => x.id === p.id));
+  assert.ok((await app.get('/api/admin/products', admin)).body.products.some(x => x.id === p.id && x.deletedAt));
+  const { stockInSize } = require('../backend/catalog');
+  assert.equal(stockInSize(p, 'M'), 0);
+  assert.equal((await app.put(`/api/admin/products/${p.id}`, { priceCOP: 1000 }, admin)).status, 409);
+
+  const restored = await app.post(`/api/admin/products/${p.id}/restore`, null, admin);
+  assert.equal(restored.status, 200);
+  assert.equal(restored.body.product.deletedAt, undefined);
+  assert.ok(stockInSize(p, 'M') > 0);
+});
+
+test('SCRUM-40 formulario: el panel recibe el vocabulario controlado para tallas, categorías, estilos y ocasiones', async () => {
+  const vocab = require('../backend/domain/vocab');
+  const res = await app.get('/api/admin/catalog/vocab', admin);
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.styles, vocab.STYLES);
+  assert.deepEqual(res.body.occasions, vocab.OCCASIONS);
+  assert.deepEqual(res.body.sizes, vocab.SIZES);
+  assert.deepEqual(res.body.categories, vocab.CATEGORIES);
+});
