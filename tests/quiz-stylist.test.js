@@ -184,3 +184,38 @@ test('SCRUM-53/55: aprobación, reemplazo validado, rechazo y registro de traini
   const reApprove = await app.post(`/api/stylist/boxes/${boxId}/approve`, { reason: 'repetida' }, stylist);
   assert.equal(reApprove.status, 409);
 });
+
+test('SCRUM-31: instrumentación de eventos de usabilidad del quiz registra interacciones y tiempos por paso', async () => {
+  const admin = await app.loginAs('ADMIN');
+
+  // Registrar evento sin tipo da 400
+  const badEvent = await app.post('/api/quiz/events', {});
+  assert.equal(badEvent.status, 400);
+
+  // Registrar eventos de interacción de un usuario de prueba en usabilidad
+  const ev1 = await app.post('/api/quiz/events', {
+    sessionId: 'session_usability_01',
+    eventType: 'STEP_VIEW',
+    step: 1,
+    metadata: { screen: 'intro' }
+  });
+  assert.equal(ev1.status, 201);
+  assert.equal(ev1.body.event.eventType, 'STEP_VIEW');
+  assert.equal(ev1.body.event.step, 1);
+
+  const ev2 = await app.post('/api/quiz/events', {
+    sessionId: 'session_usability_01',
+    eventType: 'STEP_ANSWER',
+    step: 1,
+    durationMs: 14200,
+    metadata: { questionId: 'q1', selectedOption: 'casual' }
+  });
+  assert.equal(ev2.status, 201);
+  assert.equal(ev2.body.event.durationMs, 14200);
+
+  // Listar eventos como admin
+  const listRes = await app.get('/api/quiz/events?sessionId=session_usability_01', admin);
+  assert.equal(listRes.status, 200);
+  assert.equal(listRes.body.count, 2);
+  assert.equal(listRes.body.events[0].sessionId, 'session_usability_01');
+});

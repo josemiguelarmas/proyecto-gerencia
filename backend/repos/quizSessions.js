@@ -54,4 +54,38 @@ function getQuizStats() {
   };
 }
 
-module.exports = { getOpenQuizSession, saveQuizProgress, completeQuizSession, getQuizStats };
+// SCRUM-31: Instrumentación de eventos de usabilidad (telemetría de interacción por paso)
+function addQuizEvent({ userId, sessionId, eventType, step, metadata = {}, durationMs = null }) {
+  store.data.quizEvents = store.data.quizEvents || [];
+  const event = {
+    id: newId('qev'),
+    userId: userId || null,
+    sessionId: sessionId || null,
+    eventType: String(eventType).toUpperCase(),
+    step: Number.isInteger(step) ? step : null,
+    metadata,
+    durationMs: Number.isFinite(durationMs) ? durationMs : null,
+    timestamp: new Date().toISOString()
+  };
+  store.data.quizEvents.push(event);
+  store.save();
+  return event;
+}
+
+function getQuizEvents({ sessionId = null, userId = null } = {}) {
+  const events = store.data.quizEvents || [];
+  return events.filter(e => {
+    if (sessionId && e.sessionId !== sessionId) return false;
+    if (userId && e.userId !== userId) return false;
+    return true;
+  });
+}
+
+module.exports = {
+  getOpenQuizSession,
+  saveQuizProgress,
+  completeQuizSession,
+  getQuizStats,
+  addQuizEvent,
+  getQuizEvents
+};

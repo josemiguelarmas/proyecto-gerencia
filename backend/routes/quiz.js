@@ -48,8 +48,38 @@ async function saveProgress({ req, res, authUser }) {
   return sendJson(res, 200, { session });
 }
 
+// SCRUM-31: Registro de telemetría de eventos de usabilidad
+async function recordQuizEvent({ req, res, authUser }) {
+  const body = await parseJsonBody(req);
+  const { eventType, step, metadata, durationMs, sessionId } = body;
+  if (!eventType) {
+    return sendJson(res, 400, { error: 'El campo eventType es obligatorio (ej. STEP_VIEW, STEP_ANSWER, DROP_OFF, COMPLETION).' });
+  }
+
+  const event = db.addQuizEvent({
+    userId: authUser ? authUser.id : null,
+    sessionId: sessionId || (authUser ? db.getOpenQuizSession(authUser.id)?.id : null),
+    eventType,
+    step: Number.isInteger(Number(step)) ? Number(step) : null,
+    metadata: typeof metadata === 'object' && metadata !== null ? metadata : {},
+    durationMs: Number.isFinite(Number(durationMs)) ? Number(durationMs) : null
+  });
+
+  return sendJson(res, 201, { event });
+}
+
+function listQuizEvents({ res, query }) {
+  const events = db.getQuizEvents({
+    sessionId: query?.sessionId || null,
+    userId: query?.userId || null
+  });
+  return sendJson(res, 200, { events, count: events.length });
+}
+
 module.exports = [
   { method: 'GET', path: '/api/quiz', public: true, handler: getQuizBank },
   { method: 'GET', path: '/api/quiz/progress', handler: getProgress },
-  { method: 'PUT', path: '/api/quiz/progress', handler: saveProgress }
+  { method: 'PUT', path: '/api/quiz/progress', handler: saveProgress },
+  { method: 'POST', path: '/api/quiz/events', public: true, handler: recordQuizEvent },
+  { method: 'GET', path: '/api/quiz/events', roles: ['ADMIN'], handler: listQuizEvents }
 ];
