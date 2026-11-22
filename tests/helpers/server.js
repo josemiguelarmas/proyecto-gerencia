@@ -20,6 +20,7 @@ const TEST_USERS = {
   ADMIN: { email: 'admin@test.theclothesbox.co', password: RUN_PASSWORD(), emailVar: 'ADMIN_EMAIL', passwordVar: 'ADMIN_PASSWORD' },
   STYLIST: { email: 'estilista@test.theclothesbox.co', password: RUN_PASSWORD(), emailVar: 'STYLIST_EMAIL', passwordVar: 'STYLIST_PASSWORD' },
   WAREHOUSE: { email: 'bodega@test.theclothesbox.co', password: RUN_PASSWORD(), emailVar: 'WAREHOUSE_EMAIL', passwordVar: 'WAREHOUSE_PASSWORD' },
+  BRAND: { email: 'marca.mono@test.theclothesbox.co', password: RUN_PASSWORD(), emailVar: 'BRAND_EMAIL', passwordVar: 'BRAND_PASSWORD' },
   CLIENT: { email: 'demo@theclothesbox.co', password: RUN_PASSWORD(), passwordVar: 'DEMO_CLIENT_PASSWORD' }
 };
 

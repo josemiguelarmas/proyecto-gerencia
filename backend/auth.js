@@ -10,7 +10,7 @@ const { db } = require('./database');
 
 const ISSUER = 'the-clothes-box';
 const AUDIENCE = 'the-clothes-box-spa';
-const ROLES = Object.freeze({ CLIENT: 'CLIENT', STYLIST: 'STYLIST', ADMIN: 'ADMIN', WAREHOUSE: 'WAREHOUSE' });
+const ROLES = Object.freeze({ CLIENT: 'CLIENT', STYLIST: 'STYLIST', ADMIN: 'ADMIN', WAREHOUSE: 'WAREHOUSE', BRAND: 'BRAND' });
 
 // In test mode a missing JWT_SECRET gets a random per-process secret, never a fixed string.
 let testSecret = null;
@@ -81,7 +81,7 @@ function authenticateRequest(req) {
   const user = db.findUserById(payload.userId);
   if (!user || user.deletedAt) return null;
   if ((payload.tv || 0) !== (user.tokenVersion || 0)) return null; // revoked by logout or reset
-  return { id: user.id, email: user.email, name: user.name, role: user.role || ROLES.CLIENT, emailVerified: Boolean(user.emailVerified), fiscal: user.fiscal || null };
+  return { id: user.id, email: user.email, name: user.name, role: user.role || ROLES.CLIENT, brandId: user.brandId || null, brandName: user.brandName || null, emailVerified: Boolean(user.emailVerified), fiscal: user.fiscal || null };
 }
 
 // Invalidates every token the user holds (logout, password reset).

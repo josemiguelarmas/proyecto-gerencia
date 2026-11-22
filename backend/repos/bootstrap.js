@@ -16,7 +16,8 @@ const DEMO_CLIENT_EMAIL = 'demo@theclothesbox.co';
 const PRIVILEGED_ACCOUNTS = [
   { role: 'ADMIN', emailVar: 'ADMIN_EMAIL', passwordVar: 'ADMIN_PASSWORD', id: 'usr_admin_01', name: 'Administrador de Operaciones' },
   { role: 'STYLIST', emailVar: 'STYLIST_EMAIL', passwordVar: 'STYLIST_PASSWORD', id: 'usr_stylist_01', name: 'Laura Estilista' },
-  { role: 'WAREHOUSE', emailVar: 'WAREHOUSE_EMAIL', passwordVar: 'WAREHOUSE_PASSWORD', id: 'usr_warehouse_01', name: 'Equipo de Bodega' }
+  { role: 'WAREHOUSE', emailVar: 'WAREHOUSE_EMAIL', passwordVar: 'WAREHOUSE_PASSWORD', id: 'usr_warehouse_01', name: 'Equipo de Bodega' },
+  { role: 'BRAND', emailVar: 'BRAND_EMAIL', passwordVar: 'BRAND_PASSWORD', id: 'usr_brand_mono', name: 'Marca Mono Textil', brandId: 'mono', brandName: 'Mono Textil' }
 ];
 
 function initialData() {
@@ -43,6 +44,8 @@ function seedPrivilegedUsers(data, source = env) {
       email,
       passwordHash: hashPassword(password),
       role: account.role,
+      brandId: account.brandId || null,
+      brandName: account.brandName || null,
       createdAt: new Date().toISOString()
     };
     data.users.push(user);

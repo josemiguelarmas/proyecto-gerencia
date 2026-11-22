@@ -11,6 +11,8 @@ function publicUser(user) {
     name: user.name,
     email: user.email,
     role: user.role || 'CLIENT',
+    brandId: user.brandId || null,
+    brandName: user.brandName || null,
     emailVerified: user.emailVerified,
     fiscal: user.fiscal || null
   };

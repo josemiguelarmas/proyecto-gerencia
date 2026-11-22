@@ -23,6 +23,7 @@ const routes = [
   require('./subscription'),
   require('./payments'),
   require('./referrals'),
+  require('./brand'),
   require('./admin')
 ].flat();
 
@@ -35,6 +36,12 @@ const GUARDED_PREFIXES = [
     roles: ['STYLIST', 'ADMIN'],
     forbidden: 'Acceso denegado: se requiere rol de Estilista.',
     notFound: (method, pathname) => `Endpoint de estilista no encontrado: ${method} ${pathname}`
+  },
+  {
+    prefix: '/api/brand/',
+    roles: ['BRAND', 'ADMIN'],
+    forbidden: 'Acceso denegado: se requiere rol de Marca Aliada.',
+    notFound: (method, pathname) => `Endpoint de marca no encontrado: ${method} ${pathname}`
   },
   {
     prefix: '/api/admin/',

@@ -265,7 +265,7 @@ test('un inicio de sesión correcto limpia el contador de fallos', async () => {
 
 test('requireRole lanza 403 cuando el rol no está en la lista', () => {
   const { requireRole, ROLES } = require('../backend/auth');
-  assert.deepEqual(Object.keys(ROLES).sort(), ['ADMIN', 'CLIENT', 'STYLIST', 'WAREHOUSE']);
+  assert.deepEqual(Object.keys(ROLES).sort(), ['ADMIN', 'BRAND', 'CLIENT', 'STYLIST', 'WAREHOUSE']);
   const guard = requireRole('WAREHOUSE', 'ADMIN');
   assert.doesNotThrow(() => guard({ role: 'WAREHOUSE' }));
   assert.doesNotThrow(() => guard({ role: 'ADMIN' }));
