@@ -28,7 +28,7 @@ TCB.adminTabs.invoices = (() => {
         ` : '<p class="small muted">Sin alertas abiertas.</p>'}
         <div style="overflow-x:auto">
           <table class="returns-history-table">
-            <thead><tr><th>Número</th><th>Cliente</th><th>Documento</th><th>Subtotal</th><th>IVA</th><th>Total</th><th>Estado</th></tr></thead>
+            <thead><tr><th>Número</th><th>Cliente</th><th>Documento</th><th>Subtotal</th><th>IVA</th><th>Total</th><th>Estado</th><th>Acciones</th></tr></thead>
             <tbody>${data.invoices.map(i => `
               <tr>
                 <td class="mono">${i.number}</td>
@@ -38,6 +38,7 @@ TCB.adminTabs.invoices = (() => {
                 <td class="mono">${cop(i.ivaCOP)}</td>
                 <td class="mono">${cop(i.totalCOP)}</td>
                 <td class="small">${STATUS[i.status] || i.status}${i.status === 'PENDING_RETRY' ? ` · intento ${i.attempts}, próximo ${new Date(i.nextRetryAt).toLocaleTimeString('es-CO')}` : ''}</td>
+                <td><a href="/api/invoices/${i.id}/pdf" target="_blank" class="btn btn--quiet btn--sm" style="text-decoration:none;font-size:11px">Ver PDF</a></td>
               </tr>`).join('')}
             </tbody>
           </table>
