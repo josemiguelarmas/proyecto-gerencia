@@ -4,17 +4,14 @@ const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 const { stockInSize } = require('./catalog');
+const sizeEquivalences = require('./sizeEquivalences');
 
 const SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
 
-const BRAND_RUNS = {
-  norte: { runs: 0, runsText: 'talla estándar' },
-  ceiba: { runs: 0.6, runsText: 'talla pequeño' },
-  mono: { runs: -0.5, runsText: 'talla amplio' },
-  true: { runs: -0.4, runsText: 'corte holgado' },
-  'punto-blanco': { runs: 0, runsText: 'talla regular' },
-  mattelsa: { runs: 0.2, runsText: 'talla ajustada' }
-};
+// HU-04 (SCRUM-35): Brand runs and size equivalences now read dynamically from seed and admin config
+const BRAND_RUNS = new Proxy({}, {
+  get: (_, prop) => sizeEquivalences.getBrandRun(prop)
+});
 
 const BUILD_FACTOR = { delgada: -1, media: 0, robusta: 1 };
 const EASE_TOP = { ajustado: 4, regular: 8, holgado: 14 };
@@ -298,7 +295,8 @@ function curateBox(profile, catalog, receivedItemIds = [], { plans = null, exclu
     return true;
   }
 
-  // Candidatos por categoría, ordenados: primero prendas no recibidas, luego por puntaje.
+  // Candidatos por categoría, ordenados: primero prendas dentro del presupuesto (HU-06, SCRUM-45), luego no recibidas y por puntaje.
+  const budgetMax = (profile.budgetRange && Number(profile.budgetRange.max)) || null;
   const candidatesBySlot = {};
   plan.slots.forEach(cat => {
     if (candidatesBySlot[cat]) return;
@@ -307,10 +305,12 @@ function curateBox(profile, catalog, receivedItemIds = [], { plans = null, exclu
       .map(p => {
         const size = calculateFit(profile, p).size;
         const { score, reasons } = scoreProduct(profile, p);
-        return { p, size, score, reasons, cost: costOf(p), isFresh: !receivedItemIds.includes(p.id) };
+        const matchesBudget = !budgetMax || p.priceCOP <= budgetMax;
+        return { p, size, score, reasons, cost: costOf(p), isFresh: !receivedItemIds.includes(p.id), matchesBudget };
       })
       .filter(c => stockInSize(c.p, c.size) > 0)
       .sort((a, b) => {
+        if (a.matchesBudget !== b.matchesBudget) return a.matchesBudget ? -1 : 1;
         if (a.isFresh !== b.isFresh) return a.isFresh ? -1 : 1;
         return b.score - a.score;
       });
@@ -350,6 +350,7 @@ function curateBox(profile, catalog, receivedItemIds = [], { plans = null, exclu
   const recommendations = chosen.map(c => {
     const isRepeated = !c.isFresh;
     let baseExp = explain(c.reasons, c.size, c.p.fit);
+    if (budgetMax && c.p.priceCOP <= budgetMax) baseExp += ' · dentro de tu presupuesto';
     if (c.replacedForCost) baseExp += ' · elegida para respetar el costo objetivo del plan';
     if (isRepeated) baseExp += ' · prenda repetida por catálogo agotado';
 
