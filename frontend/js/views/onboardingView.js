@@ -156,6 +156,15 @@ TCB.views.onboarding = (() => {
     } catch (e) { /* el progreso es una ayuda; si falla, el quiz sigue */ }
   }
 
+  // HU-03 (SCRUM-31): Telemetría e instrumentación para pruebas de usabilidad
+  async function sendQuizEvent(eventType, step, metadata = {}) {
+    try {
+      if (TCB.api.quiz && TCB.api.quiz.logEvent) {
+        await TCB.api.quiz.logEvent({ eventType, step, metadata, timestamp: new Date().toISOString() });
+      }
+    } catch (e) { /* telemetría de usabilidad opcional; no bloquea al usuario */ }
+  }
+
   // Al entrar con sesión: retoma el progreso guardado o abre una sesión nueva (marca el inicio del tiempo).
   async function resumeOrStart(userId, rerender) {
     if (progressCheckedFor === userId) return;
@@ -401,7 +410,10 @@ TCB.views.onboarding = (() => {
         draft.gamePicks = [...(draft.gamePicks || []), btn.dataset.gamePick];
         draft.styleWeights = styleWeightsFrom(draft.gamePicks, TCB.state.get().products || []);
         gameRound++;
-        if (gameRound >= GAME_ROUNDS) currentStep = 3;
+        if (gameRound >= GAME_ROUNDS) {
+          currentStep = 3;
+          sendQuizEvent('GAME_COMPLETED', 2, { rounds: GAME_ROUNDS });
+        }
         saveProgress();
         rerender();
       });
@@ -409,6 +421,7 @@ TCB.views.onboarding = (() => {
 
     root.querySelector('#btn-skip-game')?.addEventListener('click', () => {
       currentStep = 3;
+      sendQuizEvent('GAME_SKIPPED', 2);
       saveProgress();
       rerender();
     });
@@ -459,6 +472,7 @@ TCB.views.onboarding = (() => {
           errEl.textContent = 'Selecciona al menos un estilo.';
           return;
         }
+        sendQuizEvent('STEP_1_COMPLETED', 1, { styles: draft.styles });
         currentStep = 2;
         saveProgress();
         return rerender();
@@ -480,6 +494,7 @@ TCB.views.onboarding = (() => {
         const addrEl = root.querySelector('#f-address');
         if (addrEl) draft.address = addrEl.value.trim();
 
+        sendQuizEvent('STEP_3_COMPLETED', 3, { occasions: draft.occasions, plan: draft.plan });
         currentStep = 4;
         saveProgress();
         return rerender();
@@ -515,6 +530,7 @@ TCB.views.onboarding = (() => {
           // LLAMADA AL BACKEND REAL: PUT /api/profile
           const { gamePicks, ...profileData } = draft;
           const res = await TCB.api.profile.save({ ...profileData, source: 'quiz' });
+          sendQuizEvent('QUIZ_SUBMITTED', 4, { durationSec: res.quizSession?.durationSec });
           await TCB.state.loadUserSession();
           const duration = res.quizSession ? ` en ${Math.floor(res.quizSession.durationSec / 60)}:${String(res.quizSession.durationSec % 60).padStart(2, '0')} min` : '';
           const wasRepeat = repeatMode;

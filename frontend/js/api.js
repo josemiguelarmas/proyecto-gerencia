@@ -113,7 +113,8 @@ TCB.api = (() => {
     },
     quiz: {
       progress: () => request('/api/quiz/progress'),
-      saveProgress: data => request('/api/quiz/progress', { method: 'PUT', body: data })
+      saveProgress: data => request('/api/quiz/progress', { method: 'PUT', body: data }),
+      logEvent: data => request('/api/quiz/events', { method: 'POST', body: data })
     },
     stylist: {
       queue: () => request('/api/stylist/queue'),
@@ -134,6 +135,17 @@ TCB.api = (() => {
     returns: {
       get: () => request('/api/returns'),
       create: data => request('/api/returns', { method: 'POST', body: data })
+    },
+    referrals: {
+      getMine: () => request('/api/me/referral'),
+      adminList: () => request('/api/admin/referrals')
+    },
+    brand: {
+      products: () => request('/api/brand/products'),
+      updateStock: (productId, data) => request(`/api/brand/products/${productId}/stock`, { method: 'PUT', body: data }),
+      importCsv: csv => request('/api/brand/products/import', { method: 'POST', body: csv, headers: { 'Content-Type': 'text/csv; charset=utf-8' } }),
+      reports: () => request('/api/brand/reports/sales-returns'),
+      alerts: () => request('/api/brand/alerts/low-stock')
     },
     admin: {
       metrics: () => request('/api/admin/metrics'),

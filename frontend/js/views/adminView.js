@@ -24,12 +24,13 @@ TCB.views.admin = (() => {
     invoices: null,
     dispatch: null,
     kpis: null,
-    dataRequests: null
+    dataRequests: null,
+    referralsReport: null
   };
 
   async function loadAdminData() {
     try {
-      const [metrics, boxesRes, clientsRes, productsRes, returnsRes, feedbackRes, outboxRes, cancellationReasons, payments, invoices, dispatch, kpis, dataRequests] = await Promise.all([
+      const [metrics, boxesRes, clientsRes, productsRes, returnsRes, feedbackRes, outboxRes, cancellationReasons, payments, invoices, dispatch, kpis, dataRequests, referralsReport] = await Promise.all([
         TCB.api.admin.metrics(),
         TCB.api.admin.boxes(),
         TCB.api.admin.clients(),
@@ -42,7 +43,8 @@ TCB.views.admin = (() => {
         TCB.api.admin.invoices(),
         TCB.api.admin.dispatch(),
         TCB.api.admin.kpis(tabs.monthly.filter()),
-        TCB.api.admin.dataRequests()
+        TCB.api.admin.dataRequests(),
+        TCB.api.referrals.adminList()
       ]);
 
       cachedData = {
@@ -58,7 +60,8 @@ TCB.views.admin = (() => {
         invoices,
         dispatch,
         kpis,
-        dataRequests
+        dataRequests,
+        referralsReport
       };
       return cachedData;
     } catch (e) {
@@ -190,6 +193,9 @@ TCB.views.admin = (() => {
           </button>
           <button type="button" class="btn btn--quiet admin-tab ${activeTab === 'invoices' ? 'is-active' : ''}" data-tab="invoices">
             Facturación${cachedData.invoices && cachedData.invoices.openAlerts ? ` (${cachedData.invoices.openAlerts} alertas)` : ''}
+          </button>
+          <button type="button" class="btn btn--quiet admin-tab ${activeTab === 'referrals' ? 'is-active' : ''}" data-tab="referrals">
+            Referidos (${cachedData.referralsReport?.summary?.totalReferrals || 0})
           </button>
         </div>
 

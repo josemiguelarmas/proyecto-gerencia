@@ -202,6 +202,13 @@ TCB.views.profile = (() => {
           <div id="subscription-body"><p class="small muted">Cargando…</p></div>
         </section>
 
+        <!-- HU-18: PROGRAMA TRAE UN AMIGO (REFERIDOS) -->
+        <section id="referral-section" style="background:var(--sheet);border:var(--line);padding:28px;margin-top:32px">
+          <h2 class="display" style="font-size:var(--fs-xl);margin-bottom:8px">Programa Trae un Amigo</h2>
+          <p class="small muted" style="margin-bottom:14px">Comparte tu código o enlace exclusivo. Por cada amigo que se registre y reciba su primera caja, ambos reciben <strong>COP 20.000 de beneficio</strong>.</p>
+          <div id="referral-body"><p class="small muted">Cargando programa de referidos…</p></div>
+        </section>
+
         <!-- HU-16: MIS DATOS (derechos del titular, Ley 1581) -->
         <section id="my-data-section" style="background:var(--sheet);border:var(--line);padding:28px;margin-top:32px">
           <h2 class="display" style="font-size:var(--fs-xl);margin-bottom:8px">Mis datos</h2>
@@ -460,6 +467,90 @@ TCB.views.profile = (() => {
     });
   }
 
+  // HU-18: programa de referidos del usuario
+  async function renderReferral(root) {
+    const el = root.querySelector('#referral-body');
+    if (!el) return;
+    try {
+      const summary = await TCB.api.referrals.getMine();
+      const { referralCode, referralLink, benefit, stats, referrals = [] } = summary;
+      el.innerHTML = `
+        <div class="grid" style="--cols:repeat(auto-fit, minmax(260px, 1fr));gap:20px;margin-bottom:18px">
+          <div style="background:var(--paper-2);border:var(--hair);padding:18px;border-radius:var(--r-1)">
+            <p class="small muted" style="margin-bottom:4px">Tu código de referido:</p>
+            <div style="display:flex;gap:8px;align-items:center">
+              <span class="mono" style="font-size:var(--fs-xl);font-weight:700;color:var(--brand-box);letter-spacing:1px">${referralCode}</span>
+              <button type="button" class="btn btn--sm btn--ghost" id="btn-copy-ref-code">Copiar código</button>
+            </div>
+            <p class="small muted" style="margin-top:12px;margin-bottom:4px">Tu enlace directo:</p>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input type="text" class="input input--sm mono" id="ref-link-input" readonly value="${referralLink}" style="font-size:11px">
+              <button type="button" class="btn btn--sm btn--ghost" id="btn-copy-ref-link">Copiar</button>
+            </div>
+          </div>
+          <div style="background:var(--paper-2);border:var(--hair);padding:18px;border-radius:var(--r-1)">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+              <div>
+                <p class="mono small muted" style="font-size:10px">AMIGOS REFERIDOS</p>
+                <h4 class="display" style="font-size:var(--fs-2xl);margin-top:4px">${stats.totalReferred}</h4>
+                <span class="small muted">${stats.converted} con primera caja</span>
+              </div>
+              <div>
+                <p class="mono small muted" style="font-size:10px">RECOMPENSAS GANADAS</p>
+                <h4 class="display" style="font-size:var(--fs-2xl);margin-top:4px;color:var(--brand-box)">${cop(stats.totalRewardsEarnedCOP || 0)}</h4>
+                <span class="small muted">${stats.pending} en proceso</span>
+              </div>
+            </div>
+            <p class="small muted" style="margin-top:14px;border-top:var(--hair);padding-top:10px">
+              Tope mensual: hasta 5 conversiones por mes.
+            </p>
+          </div>
+        </div>
+
+        ${referrals.length ? `
+          <h4 style="font-size:var(--fs-sm);font-weight:700;margin-bottom:8px">Historial de amigos referidos:</h4>
+          <div style="overflow-x:auto">
+            <table class="table" style="font-size:var(--fs-sm)">
+              <thead>
+                <tr>
+                  <th>Amigo</th>
+                  <th>Fecha de registro</th>
+                  <th>Estado</th>
+                  <th>Tu recompensa</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${referrals.map(r => `
+                  <tr>
+                    <td><strong>${r.referredUserName}</strong></td>
+                    <td class="mono small">${day(r.createdAt)}</td>
+                    <td>
+                      <span class="badge ${r.status === 'CONVERTED' ? 'badge--success' : 'badge--neutral'}">
+                        ${r.status === 'CONVERTED' ? 'Completado' : 'Pendiente primera caja'}
+                      </span>
+                    </td>
+                    <td class="mono">${r.status === 'CONVERTED' ? cop(benefit.referrerCOP) : '—'}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        ` : `
+          <p class="small muted" style="font-style:italic">Aún no has invitado a ningún amigo. ¡Comparte tu enlace y acumula descuentos para tus próximas suscripciones!</p>
+        `}
+      `;
+
+      el.querySelector('#btn-copy-ref-code')?.addEventListener('click', () => {
+        navigator.clipboard.writeText(referralCode).then(() => TCB.state.toast('¡Código copiado al portapapeles!'));
+      });
+      el.querySelector('#btn-copy-ref-link')?.addEventListener('click', () => {
+        navigator.clipboard.writeText(referralLink).then(() => TCB.state.toast('¡Enlace de referido copiado al portapapeles!'));
+      });
+    } catch (e) {
+      el.innerHTML = '<p class="small muted">No pudimos cargar la información de referidos en este momento.</p>';
+    }
+  }
+
   // HU-16: copia de los datos personales en JSON
   async function downloadMyData() {
     try {
@@ -583,6 +674,7 @@ TCB.views.profile = (() => {
     root.querySelector('#btn-delete-account')?.addEventListener('click', openDeleteAccountModal);
 
     renderSubscription(root);
+    renderReferral(root);
     renderFiscal(root, TCB.state.get().user);
     renderStyleHistory(root, TCB.state.get().profile || {});
     root.querySelector('#btn-repeat-quiz')?.addEventListener('click', () => {

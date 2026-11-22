@@ -14,6 +14,7 @@ TCB.app = (() => {
     '#/suscripcion': TCB.views.subscribe,
     '#/admin': TCB.views.admin,
     '#/estilista': TCB.views.stylist,
+    '#/marca': TCB.views.brand,
     '#/restablecer': TCB.views.resetPassword,
     '#/verificar': TCB.views.verifyEmail
   };
@@ -23,6 +24,7 @@ TCB.app = (() => {
     const currentHash = window.location.hash || '#/';
     const isAdmin = user && user.role === 'ADMIN';
     const isStylist = user && user.role === 'STYLIST';
+    const isBrand = user && user.role === 'BRAND';
 
     const appbarEl = document.getElementById('app-header');
     if (!appbarEl) return;
@@ -49,6 +51,9 @@ TCB.app = (() => {
             <a class="nav-link ${currentHash.startsWith('#/estilista') ? 'is-active' : ''}" href="#/estilista">
               Cola de curaduría
             </a>
+            <a class="nav-link ${currentHash.startsWith('#/marca') ? 'is-active' : ''}" href="#/marca">
+              ${icon('tag', 15)} Portal Marcas
+            </a>
             <a class="nav-link ${currentHash === '#/' ? 'is-active' : ''}" href="#/">
               Ver Landing
             </a>
@@ -58,6 +63,13 @@ TCB.app = (() => {
           ` : isStylist ? `
             <a class="nav-link ${currentHash.startsWith('#/estilista') ? 'is-active' : ''}" href="#/estilista" style="font-weight:700;color:var(--brand-box)">
               ${icon('sparkle', 15)} Cola de curaduría
+            </a>
+          ` : isBrand ? `
+            <a class="nav-link ${currentHash.startsWith('#/marca') ? 'is-active' : ''}" href="#/marca" style="font-weight:700;color:var(--brand-box)">
+              ${icon('tag', 15)} Portal de Marca
+            </a>
+            <a class="nav-link ${currentHash === '#/' ? 'is-active' : ''}" href="#/">
+              Ver Landing
             </a>
           ` : user ? `
             <a class="nav-link ${currentHash === '#/' ? 'is-active' : ''}" href="#/">Inicio</a>
@@ -115,6 +127,8 @@ TCB.app = (() => {
           navigate('#/admin');
         } else if (role === 'STYLIST') {
           window.location.hash = '#/estilista';
+        } else if (role === 'BRAND') {
+          window.location.hash = '#/marca';
         } else {
           navigate(window.location.hash || '#/caja');
         }
@@ -153,6 +167,14 @@ TCB.app = (() => {
       await TCB.views.returns.loadReturnsData();
     } else if (cleanHash === '#/historial' && TCB.views.history.loadHistoryData) {
       await TCB.views.history.loadHistoryData();
+    } else if (cleanHash === '#/marca' && TCB.views.brand.loadBrandData) {
+      if (user && (user.role === 'BRAND' || user.role === 'ADMIN')) {
+        try {
+          await TCB.views.brand.loadBrandData();
+        } catch (e) {
+          console.warn('Error loading brand data:', e);
+        }
+      }
     }
 
     const store = TCB.state.get();

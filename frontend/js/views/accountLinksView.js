@@ -36,7 +36,7 @@ TCB.views = TCB.views || {};
           <p class="error small" id="reset-error" role="alert"></p>
           <div class="field">
             <label for="reset-password">Nueva contraseña</label>
-            <input class="input" id="reset-password" name="password" type="password" autocomplete="new-password" minlength="6" required placeholder="Mínimo 6 caracteres">
+            <input class="input" id="reset-password" name="password" type="password" autocomplete="new-password" minlength="8" required placeholder="Mínimo 8 caracteres (letras y números)">
           </div>
           <div class="field">
             <label for="reset-confirm">Repite la contraseña</label>
@@ -55,8 +55,8 @@ TCB.views = TCB.views || {};
         e.preventDefault();
         errEl.textContent = '';
         const password = form.elements.password.value;
-        if (password.length < 6) {
-          errEl.textContent = 'La contraseña debe tener mínimo 6 caracteres.';
+        if (password.length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+          errEl.textContent = 'La contraseña debe tener al menos 8 caracteres y combinar letras y números.';
           return;
         }
         if (password !== form.elements.confirm.value) {

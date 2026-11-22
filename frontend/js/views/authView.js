@@ -76,6 +76,7 @@ TCB.views.auth = (() => {
   }
 
   function openRegisterModal(onSuccess) {
+    const refParam = new URLSearchParams(window.location.search).get('ref') || new URLSearchParams((window.location.hash || '').split('?')[1] || '').get('ref') || '';
     TCB.state.modal({
       eyebrow: 'Registro',
       title: 'Crear tu cuenta',
@@ -97,7 +98,11 @@ TCB.views.auth = (() => {
           </div>
           <div class="field">
             <label for="reg-password">Crea una contraseña segura</label>
-            <input class="input" id="reg-password" name="password" type="password" autocomplete="new-password" required minlength="6" placeholder="Mínimo 6 caracteres">
+            <input class="input" id="reg-password" name="password" type="password" autocomplete="new-password" required minlength="8" placeholder="Mínimo 8 caracteres (letras y números)">
+          </div>
+          <div class="field">
+            <label for="reg-referral">Código de referido (opcional)</label>
+            <input class="input mono" id="reg-referral" name="referralCode" type="text" placeholder="REF-XXXXXX" style="text-transform:uppercase" value="${refParam}">
           </div>
           <label style="display:flex;gap:10px;align-items:flex-start;font-size:var(--fs-sm);line-height:1.4;cursor:pointer">
             <input type="checkbox" name="acceptedPolicy" id="reg-consent" style="margin-top:3px;width:18px;height:18px;flex:none">
@@ -127,6 +132,7 @@ TCB.views.auth = (() => {
           const email = form.elements.email.value.trim();
           const password = form.elements.password.value;
           const birthDate = form.elements.birthDate.value;
+          const referralCode = (form.elements.referralCode?.value || '').trim().toUpperCase();
 
           if (!name || !email || !password || !birthDate) {
             errEl.textContent = 'Completa todos los campos.';
@@ -136,8 +142,8 @@ TCB.views.auth = (() => {
             errEl.textContent = `Debes ser mayor de ${MIN_AGE} años para crear una cuenta en The Clothes Box.`;
             return;
           }
-          if (password.length < 6) {
-            errEl.textContent = 'La contraseña debe tener mínimo 6 caracteres.';
+          if (password.length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+            errEl.textContent = 'La contraseña debe tener al menos 8 caracteres y combinar letras y números.';
             return;
           }
           if (!form.elements.acceptedPolicy.checked) {
@@ -153,6 +159,9 @@ TCB.views.auth = (() => {
             await TCB.api.auth.register({
               name, email, password, birthDate,
               acceptedPolicy: true,
+              policyVersion: policy.version,
+              referralCode: referralCode || undefined
+            });
               policyVersion: policy.version
             });
             await TCB.state.loadUserSession();
