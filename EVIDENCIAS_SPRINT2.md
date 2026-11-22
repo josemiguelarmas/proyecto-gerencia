@@ -677,3 +677,35 @@ HU-18 y HU-19 quedan fuera del alcance (Could, después del piloto). Comando de 
    - Prueba de humo integral (`tests/e2e.smoke.test.js`) cubriendo el ciclo de vida completo y 6 caminos negativos.
 
 Consulte el informe detallado en `docs/alignment/report.md` y la propuesta de actualización en `docs/alignment/jira-update-proposal.md`.
+
+---
+
+## Sesión de Cierre Definitivo Sprint 2: HU-18, HU-19 y Telemetría de Usabilidad (22/11/2026)
+
+**Rama Principal:** `main`  
+**Comando de prueba:** `npm test` (`node --test tests/`) · **146 de 146 pruebas en verde (0 fallos)**.  
+**Comando de evaluación offline:** `npm run eval` (`node scripts/eval-recommender.js`) · **100 % de restricciones duras cumplidas** en 30 perfiles sintéticos.
+
+### Cierre de Brechas Prioritarias
+
+1. **HU-18 Referidos "Trae un amigo" (SCRUM-110..113):**
+   - **SCRUM-111:** Generación de códigos únicos de referido (`REF-XXXXXX`) y enlaces compartibles (`GET /api/me/referral`).
+   - **SCRUM-112:** Reglas de beneficio ($20.000 COP para referente y referido) y anti-fraude (bloqueo de auto-referido por correo/ID, control de duplicados y tope máximo de 5 conversiones mensuales).
+   - **SCRUM-113:** Atribución en registro (`referralCode`), aplicación de descuento en cobro inicial, conversión automática a estado `CONVERTED` y reporte administrativo consolidado en `GET /api/admin/referrals`.
+   - **Pruebas:** `tests/referrals.test.js` (3 de 3 aprobadas).
+
+2. **HU-19 Panel de Inventario para Marcas Aliadas (SCRUM-114..118):**
+   - **SCRUM-115:** Rol `BRAND` en autenticación JWT (`backend/auth.js`) y prefijo resguardado `/api/brand/` con aislamiento estricto de datos (una marca únicamente accede y gestiona sus propias prendas).
+   - **SCRUM-116:** Consulta de stock (`GET /api/brand/products`), actualización manual de stock por variante con auditoría en `inventoryMovements` (`PUT /api/brand/products/:id/stock`), e importación masiva CSV acotada a la marca con validación anti-suplantación (`POST /api/brand/products/import`).
+   - **SCRUM-117:** Reporte analítico de prendas entregadas, ventas retail, ingresos mayoristas, conteo y tasa de devoluciones por talla/motivo y calificación de clientes (`GET /api/brand/reports/sales-returns`).
+   - **SCRUM-118:** Alertas de stock bajo y variantes agotadas según umbral configurable (`GET /api/brand/alerts/low-stock`).
+   - **Pruebas:** `tests/brand.test.js` (5 de 5 aprobadas).
+
+3. **HU-03 Telemetría de Pruebas de Usabilidad (SCRUM-31):**
+   - Implementación del hook e instrumentación de eventos de usabilidad (`POST /api/quiz/events` y `GET /api/quiz/events`) para medir interacciones, tiempos por paso y abandonos con usuarios de prueba.
+   - **Pruebas:** `tests/quiz-stylist.test.js`.
+
+4. **HU-17 Tablero de KPIs Consolidado:**
+   - Verificación de la ingesta de motivos de salida de la encuesta de cancelación (HU-13) y de devoluciones por talla con alerta configurable (HU-14).
+   - **Pruebas:** `tests/kpis.test.js`.
+
