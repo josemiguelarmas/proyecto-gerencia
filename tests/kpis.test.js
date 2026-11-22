@@ -149,3 +149,22 @@ test('SCRUM-109: umbrales en colección settings editables por admin con validac
     returnsThreshold: config.RETURNS_THRESHOLD_DEFAULT
   }, adminToken);
 });
+
+test('SCRUM-108/HU-17: el dashboard de KPIs consume métricas de motivos de salida (HU-13) y devoluciones por talla (HU-14)', async () => {
+  const adminToken = await app.loginAs('ADMIN');
+  const res = await app.get('/api/admin/kpis', adminToken);
+  assert.equal(res.status, 200);
+
+  // Verifica integración con motivos de salida de la encuesta (HU-13)
+  assert.ok(res.body.cancellationReasons, 'Contiene reporte de motivos de salida de HU-13');
+  assert.ok(Array.isArray(res.body.cancellationReasons.reasons));
+  const expectedReasons = ['precio', 'estilo', 'talla', 'tiempo', 'otro'];
+  expectedReasons.forEach(r => {
+    assert.ok(res.body.cancellationReasons.reasons.some(item => item.key === r), `Contiene motivo ${r}`);
+  });
+
+  // Verifica integración con devoluciones por talla de HU-14 y alerta configurable
+  assert.ok(res.body.returnsAlert, 'Contiene alerta de devoluciones por talla de HU-14');
+  assert.equal(typeof res.body.returnsAlert.threshold, 'number');
+  assert.equal(typeof res.body.returnsAlert.active, 'boolean');
+});
