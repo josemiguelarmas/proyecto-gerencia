@@ -24,7 +24,18 @@ function sendResult(res, result, okStatus = 200) {
 }
 
 function listPublicProducts({ res }) {
-  return sendJson(res, 200, products.listProducts());
+  const all = products.listProducts();
+  const sanitized = all.map(p => {
+    const { wholesalePriceCOP, wholesaleEstimated, ...cleanProduct } = p;
+    return {
+      ...cleanProduct,
+      variants: (cleanProduct.variants || []).map(v => {
+        const { wholesalePrice, ...cleanVariant } = v;
+        return cleanVariant;
+      })
+    };
+  });
+  return sendJson(res, 200, sanitized);
 }
 
 function listProducts({ res }) {

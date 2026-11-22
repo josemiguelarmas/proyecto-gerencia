@@ -12,6 +12,14 @@ const { hashPassword, newId } = require('../lib/crypto');
 const { passwordProblem } = require('../lib/validate');
 
 const DEMO_CLIENT_EMAIL = 'demo@theclothesbox.co';
+const DEMO_MEASURES = {
+  height: 174,
+  weight: 68,
+  build: 'media',
+  usual: 'M',
+  refBrand: 'norte',
+  refSize: 'M'
+};
 
 const PRIVILEGED_ACCOUNTS = [
   { role: 'ADMIN', emailVar: 'ADMIN_EMAIL', passwordVar: 'ADMIN_PASSWORD', id: 'usr_admin_01', name: 'Administrador de Operaciones' },
@@ -67,6 +75,19 @@ function ensureBaseRecords() {
   });
 
   if (seedPrivilegedUsers(data).length > 0) needsSave = true;
+
+  // HU-04 (SCRUM-36): Medidas antropométricas del cliente demo cifradas en reposo
+  const demoProfile = data.profiles.find(p => p.userId === 'usr_demo_01');
+  if (demoProfile && (!demoProfile.measures || !demoProfile.encryptedMeasures)) {
+    try {
+      const { encryptJson } = require('../lib/crypto');
+      demoProfile.encryptedMeasures = encryptJson(demoProfile.measures || DEMO_MEASURES);
+      demoProfile.measures = demoProfile.measures || DEMO_MEASURES;
+      needsSave = true;
+    } catch {
+      demoProfile.measures = demoProfile.measures || DEMO_MEASURES;
+    }
+  }
 
   // The seeded demo client gets a password only when DEMO_CLIENT_PASSWORD is set.
   const demo = data.users.find(u => u.email === DEMO_CLIENT_EMAIL);

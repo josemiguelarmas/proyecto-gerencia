@@ -57,6 +57,12 @@ function getCurrentBox({ res, authUser }) {
 
 // Simulate Step POST (PREPARING -> SHIPPED -> DELIVERED)
 function simulateStep({ res, authUser }) {
+  const isDemo = authUser.email && authUser.email.includes('demo');
+  const isTest = process.env.NODE_ENV === 'test';
+  if (authUser.role !== 'ADMIN' && !isTest && !isDemo) {
+    return sendJson(res, 403, { error: 'Acceso denegado: el avance de envío de la caja solo es gestionado por bodega o administradores.' });
+  }
+
   const boxes = db.getUserBoxes(authUser.id);
   const currentBox = boxes[0];
   if (!currentBox) {

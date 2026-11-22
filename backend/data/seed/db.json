@@ -25,14 +25,7 @@
       "line": "u",
       "risk": 1,
       "plan": "esencial",
-      "measures": {
-        "height": 174,
-        "weight": 68,
-        "build": "media",
-        "usual": "M",
-        "refBrand": "norte",
-        "refSize": "M"
-      },
+      "measures": null,
       "brandAdj": {
         "ceiba": 0.5,
         "mono": -0.5,

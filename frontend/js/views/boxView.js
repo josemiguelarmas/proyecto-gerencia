@@ -60,14 +60,15 @@ TCB.views.box = (() => {
           </p>
         </div>
 
-        <!-- CONTROLADOR DE SIMULACIÓN DE DEMOSTRACIÓN (Siempre disponible para evaluar el flujo) -->
+        <!-- CONTROLADOR DE SIMULACIÓN DE DEMOSTRACIÓN (Solo visible para rol ADMIN o cuenta demo evaluativa) -->
+        ${(store.user && (store.user.role === 'ADMIN' || (store.user.email && store.user.email.includes('demo')))) ? `
         <div class="demo-controller">
           <div style="display:flex;align-items:center;gap:12px">
             <div style="width:36px;height:36px;border-radius:50%;background:var(--brand-box);color:#fff;display:grid;place-items:center">
               ${icon('truck', 18)}
             </div>
             <div>
-              <p style="font-weight:700;font-size:var(--fs-sm)">Controlador de Demostración Evaluativa</p>
+              <p style="font-weight:700;font-size:var(--fs-sm)">Controlador de Demostración Evaluativa (Solo Administradores)</p>
               <p class="small muted">
                 Estado backend actual: <span class="mono" style="font-weight:700;color:var(--brand-box)">${box.status}</span>
                 ${isDelivered ? (isUnboxed ? ' · Desempacada (Prendas descubiertas)' : ' · En tu puerta (Sellada)') : ' · En camino (Prendas protegidas)'}
@@ -83,6 +84,7 @@ TCB.views.box = (() => {
             </button>
           </div>
         </div>
+        ` : ''}
 
         <!-- 1. EXPERIENCIA DE EXPECTATIVA: CAJA EN PREPARACIÓN O ENVÍO -->
         ${isSealed ? renderSealedState(box) : ''}
