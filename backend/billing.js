@@ -300,14 +300,15 @@ function deliverSimulatedWebhook(charge) {
 }
 
 // Cobra a una suscripción y registra el pago (y su factura si se aprueba).
-function chargeSubscription(sub, { kind, period, idempotencyKey, token = sub.paymentToken, now = new Date() }) {
+function chargeSubscription(sub, { kind, period, idempotencyKey, token = sub.paymentToken, amountCOP = null, now = new Date() }) {
   const plan = config.PLANS[sub.plan];
   const existing = db.findPayment(p => p.idempotencyKey === idempotencyKey);
   if (existing) return existing;
 
+  const finalAmountCOP = Number.isInteger(amountCOP) ? amountCOP : plan.priceCOP;
   const charge = payments.charge({
     token,
-    amountCOP: plan.priceCOP,
+    amountCOP: finalAmountCOP,
     idempotencyKey,
     description: `The Clothes Box plan ${plan.name} · ${period}`,
     recurring: kind !== 'INITIAL'
@@ -318,9 +319,9 @@ function chargeSubscription(sub, { kind, period, idempotencyKey, token = sub.pay
     plan: sub.plan,
     period,
     kind,
-    amountCOP: plan.priceCOP,
+    amountCOP: finalAmountCOP,
     feeCOP: charge.feeCOP,
-    netCOP: plan.priceCOP - charge.feeCOP,
+    netCOP: finalAmountCOP - charge.feeCOP,
     status: charge.status,
     reason: charge.reason,
     idempotencyKey,
@@ -356,16 +357,27 @@ function subscribe(user, { plan, paymentToken, fiscal }, now = new Date()) {
   const current = db.getSubscription(user.id);
   assertTransition(current, 'subscribe');
 
+  // HU-18: Descuento por referido en el primer cobro si el usuario fue referido
+  const pendingReferral = (db.data.referrals || []).find(r => r.referredUserId === user.id && r.status === 'PENDING');
+  const discountCOP = pendingReferral ? (pendingReferral.discountCOP || 20000) : 0;
+  const initialAmount = Math.max(0, config.PLANS[plan].priceCOP - discountCOP);
+
   const draft = { ...current, plan };
   const payment = chargeSubscription(draft, {
     kind: 'INITIAL',
     period: periodKey(now),
     idempotencyKey: `initial_${user.id}_${periodKey(now)}_${paymentToken}`,
     token: paymentToken,
+    amountCOP: initialAmount,
     now
   });
   if (payment.status !== 'APPROVED') {
     throw httpError(402, `El pago fue rechazado: ${payment.reason}. Tu suscripción no se activó.`, { reason: payment.reason, paymentId: payment.id });
+  }
+
+  // HU-18: Al aprobar el cobro inicial se convierte el referido exitosamente
+  if (pendingReferral) {
+    db.convertReferral(user.id);
   }
 
   const sub = db.saveSubscription(user.id, {

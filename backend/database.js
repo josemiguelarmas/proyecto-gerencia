@@ -30,6 +30,7 @@ const db = {
   ...require('./repos/boxes'),
   ...require('./repos/ratings'),
   ...require('./repos/returns'),
+  ...require('./repos/referrals'),
   ...require('./repos/products'),
   ...require('./repos/adminReports')
 };

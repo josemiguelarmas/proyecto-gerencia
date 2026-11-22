@@ -22,6 +22,7 @@ const routes = [
   require('./warehouse'),
   require('./subscription'),
   require('./payments'),
+  require('./referrals'),
   require('./admin')
 ].flat();
 

@@ -135,5 +135,17 @@ module.exports = {
     items: plan.items,
     billingCycleMonths: 1,
     targetCost: Math.round(plan.priceCOP * PLAN_TARGET_COST_RATE)
-  }]))
+  }])),
+
+  // HU-18: Referidos "trae un amigo" (SCRUM-110..113)
+  REFERRAL: {
+    BENEFIT_REFERRED_COP: 20000,
+    BENEFIT_REFERRER_COP: 20000,
+    MAX_REFERRALS_PER_MONTH: 5
+  },
+
+  // HU-19: Panel de marcas aliadas (SCRUM-114..118)
+  BRAND: {
+    LOW_STOCK_THRESHOLD: 3
+  }
 };

@@ -23,7 +23,7 @@ function ageFromBirthDate(birthDate, now = new Date()) {
 }
 
 async function register({ req, res }) {
-  const { name, email, password, birthDate, acceptedPolicy, policyVersion } = await parseJsonBody(req);
+  const { name, email, password, birthDate, acceptedPolicy, policyVersion, referralCode } = await parseJsonBody(req);
   if (!name || !email || !password || !birthDate) {
     return sendJson(res, 400, { error: 'Nombre, correo, fecha de nacimiento y contraseña son obligatorios.' });
   }
@@ -51,8 +51,23 @@ async function register({ req, res }) {
   if (db.findUserByEmail(email)) {
     return sendJson(res, 409, { error: 'Este correo ya está registrado', code: 'EMAIL_EXISTS', offer: 'login_or_recovery' });
   }
+
+  // HU-18: validación anti-fraude del código de referido al registrarse
+  if (referralCode) {
+    const refCheck = db.validateReferralCode(referralCode, { email });
+    if (!refCheck.valid) {
+      return sendJson(res, 400, { error: refCheck.error, code: 'INVALID_REFERRAL_CODE' });
+    }
+  }
+
   const user = db.createUser(name, email, password, 'CLIENT', { birthDate, emailVerified: false });
   db.addConsent(user.id, { accepted: true, policyVersion });
+  db.getOrCreateReferralCode(user.id);
+
+  if (referralCode) {
+    db.recordReferralAtSignup({ referredUserId: user.id, referralCode, candidateEmail: email });
+  }
+
   sendVerificationEmail(user);
   const token = issueToken(user);
   return sendJson(res, 201, { token, user: publicUser(user) });
