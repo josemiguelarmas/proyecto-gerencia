@@ -162,8 +162,6 @@ TCB.views.auth = (() => {
               policyVersion: policy.version,
               referralCode: referralCode || undefined
             });
-              policyVersion: policy.version
-            });
             await TCB.state.loadUserSession();
             close();
             TCB.state.toast(`¡Bienvenido a The Clothes Box, ${name}! Te enviamos un correo para verificar tu cuenta.`);
