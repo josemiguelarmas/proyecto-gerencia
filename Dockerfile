@@ -14,6 +14,7 @@ WORKDIR /app
 COPY package.json server.js ./
 COPY backend ./backend
 COPY frontend ./frontend
+COPY scripts ./scripts
 COPY docs/ejemplo_catalogo.csv ./docs/ejemplo_catalogo.csv
 
 # Los datos de ejecución viven en un volumen, fuera de la imagen.
