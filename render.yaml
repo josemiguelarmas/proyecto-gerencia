@@ -1,0 +1,60 @@
+# Blueprint de Render para The Clothes Box (staging/demo). Cero dependencias de npm.
+# Plan free: el disco es efímero, los datos vuelven a la semilla en cada reinicio o redespliegue.
+# Para persistir, cambia a plan starter y descomenta el bloque "disk" (ver docs/staging.md).
+services:
+  - type: web
+    name: the-clothes-box
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /
+    autoDeploy: true
+    # disk:
+    #   name: tcb-data
+    #   mountPath: /data
+    #   sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: /data
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATA_ENCRYPTION_KEY
+        generateValue: true
+      - key: PAYMENT_WEBHOOK_SECRET
+        generateValue: true
+      # Cuentas internas: Render las pide al crear el blueprint (nunca van en git).
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: STYLIST_EMAIL
+        sync: false
+      - key: STYLIST_PASSWORD
+        sync: false
+      - key: WAREHOUSE_EMAIL
+        sync: false
+      - key: WAREHOUSE_PASSWORD
+        sync: false
+      - key: BRAND_EMAIL
+        sync: false
+      - key: BRAND_PASSWORD
+        sync: false
+      - key: DEMO_CLIENT_PASSWORD
+        sync: false
+      # Pon aquí la URL real una vez Render la asigne (https://<servicio>.onrender.com).
+      - key: APP_BASE_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: POLICY_VERSION
+        value: v1.0
+      - key: PAYMENT_PROVIDER
+        value: simulated
+      - key: INVOICING_PROVIDER
+        value: simulated
+      - key: SHIPPING_PROVIDER
+        value: simulated
+      - key: MAIL_PROVIDER
+        value: simulated
